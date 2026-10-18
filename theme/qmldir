@@ -1,0 +1,8 @@
+singleton Colors Colors.qml
+singleton Typography Typography.qml
+singleton Metrics Metrics.qml
+singleton Motion Motion.qml
+singleton Icons Icons.qml
+singleton Atoll Atoll.qml
+singleton Capabilities Capabilities.qml
+singleton ColorFormats ColorFormats.qml

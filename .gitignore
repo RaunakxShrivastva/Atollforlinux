@@ -1,0 +1,21 @@
+# Upstream macOS Atoll: reference only, pulled separately (see README).
+Atoll-dev/
+Atoll-dev.zip
+
+# Upstream release downloads / partials / the macOS Sparkle update feed.
+Atoll-*.zip
+Atoll-*.tar.gz
+Atoll-*.part
+appcast.xml
+
+# A separate project checked out beside this one (its own repository).
+tangerine/
+
+# Tooling / runtime noise.
+__pycache__/
+*.pyc
+*.qslog
+.qmlls.ini
+*.user
+build/
+dist/

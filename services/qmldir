@@ -1,0 +1,15 @@
+singleton Settings Settings.qml
+MPRISService MPRISService.qml
+SystemMonitorService SystemMonitorService.qml
+NotificationService NotificationService.qml
+TimerService TimerService.qml
+AudioService AudioService.qml
+BrightnessService BrightnessService.qml
+CaffeinateService CaffeinateService.qml
+NotesService NotesService.qml
+ClipboardService ClipboardService.qml
+AutostartService AutostartService.qml
+singleton ColorPickerService ColorPickerService.qml
+singleton TerminalService TerminalService.qml
+DownloadsService DownloadsService.qml
+CalendarService CalendarService.qml

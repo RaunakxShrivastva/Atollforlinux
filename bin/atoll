@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# Atoll for Linux Launcher Script
+
+REAL_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
+ATOLL_DIR="$(cd "$(dirname "$REAL_PATH")/.." && pwd)"
+
+case "$1" in
+    start)
+        echo "Starting Atoll Dynamic Island for Linux..."
+        quickshell --no-duplicate --daemonize -p "$ATOLL_DIR/shell.qml"
+        echo "Atoll started."
+        ;;
+    stop)
+        echo "Stopping Atoll Dynamic Island..."
+        killall -9 quickshell || true
+        echo "Atoll stopped."
+        ;;
+    restart)
+        "$0" stop
+        sleep 1
+        "$0" start
+        ;;
+    status)
+        if pgrep -f "shell.qml" > /dev/null; then
+            echo "Atoll for Linux is RUNNING."
+        else
+            echo "Atoll for Linux is STOPPED."
+        fi
+        ;;
+    settings|open-settings)
+        quickshell -p "$ATOLL_DIR/shell.qml" ipc call settings toggle 2>/dev/null \
+            || echo "Atoll is not running. Start it with: atoll start"
+        ;;
+    close-settings)
+        quickshell -p "$ATOLL_DIR/shell.qml" ipc call settings close 2>/dev/null \
+            || echo "Atoll is not running. Start it with: atoll start"
+        ;;
+    colorpicker|colourpicker)
+        shift
+        quickshell -p "$ATOLL_DIR/shell.qml" ipc call colorpicker "${1:-toggle}" 2>/dev/null \
+            || echo "Atoll is not running. Start it with: atoll start"
+        ;;
+    *)
+        echo "Usage: atoll {start|stop|restart|status|settings|close-settings|colorpicker [open|close|toggle|pick|clear]}"
+        echo "Executing Atoll in foreground..."
+        cd "$ATOLL_DIR" && exec quickshell -p shell.qml
+        ;;
+esac
