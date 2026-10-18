@@ -35,7 +35,7 @@ QtObject {
     property string output: ""            // transcript of the last command
     property string lastCommand: ""
 
-    signal outputChanged()
+    // `output`'s own change signal (outputChanged) notifies the view.
     signal launched(string command)
 
     // Prefer the configured emulator, else the first one installed.
@@ -109,7 +109,6 @@ QtObject {
         }
         onExited: {
             root.busy = false;
-            root.outputChanged();
         }
     }
 
@@ -130,14 +129,12 @@ QtObject {
         var lines = next.split("\n");
         if (lines.length > 400) next = lines.slice(lines.length - 400).join("\n");
         root.output = next;
-        root.outputChanged();
     }
 
     function clear() {
         root.output = "";
         root.title = "Terminal";
         root.lastCommand = "";
-        root.outputChanged();
     }
 
     Component.onCompleted: root.resolve()

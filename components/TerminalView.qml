@@ -125,7 +125,7 @@ ColumnLayout {
             clip: true
 
             Flickable {
-                id: console
+                id: consoleFlick
                 anchors.fill: parent
                 anchors.margins: 8
                 contentWidth: width
@@ -136,7 +136,7 @@ ColumnLayout {
 
                 TextEdit {
                     id: transcript
-                    width: console.width
+                    width: consoleFlick.width
                     text: root.service && root.service.output !== ""
                           ? root.service.output
                           : "$ " + root.shellName + "  (press Run, or open a real terminal)"
