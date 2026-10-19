@@ -14,6 +14,13 @@ RowLayout {
 
     property var entries: []
     property var notes: []
+    property string imageDir: ""
+    // Notes sub-features, forwarded from Settings (see NotesView).
+    property bool notePinning: true
+    property bool noteSearch: false
+    property bool noteColorFiltering: false
+    property bool noteFromClipboard: true
+    property bool noteCharCount: true
     property string appName: ""
     property string summary: ""
     property string body: ""
@@ -22,16 +29,19 @@ RowLayout {
 
     // True while the notes editor is open: the island has to take the keyboard
     // on demand for its text fields to be typeable (see shell.qml).
-    readonly property bool wantsKeyboard:
-        root.notesVisible && (notesView.editingNew || notesView.editingId !== "")
+    readonly property bool wantsKeyboard: root.notesVisible && notesView.wantsKeyboard
 
     signal pickRequested(int id)
     signal removeRequested(int id)
     signal clearRequested()
     signal dismissClicked()
 
-    signal noteAdded(string title, string body)
-    signal noteUpdated(string id, string title, string body)
+    signal noteCopyRequested(string text)
+    signal notePasteRequested(bool intoEditor)
+    signal noteImageDiscarded(string path)
+
+    signal noteAdded(string title, string body, int colorIndex, string image)
+    signal noteUpdated(string id, string title, string body, int colorIndex, string image)
     signal noteRemoved(string id)
     signal notePinned(string id)
     signal allCleared()
@@ -69,8 +79,17 @@ RowLayout {
         Layout.fillHeight: true
         visible: root.notesVisible
         notes: root.notes
-        onNoteAdded: (title, body) => root.noteAdded(title, body)
-        onNoteUpdated: (id, title, body) => root.noteUpdated(id, title, body)
+        imageDir: root.imageDir
+        enablePinning: root.notePinning
+        enableSearch: root.noteSearch
+        enableColorFiltering: root.noteColorFiltering
+        enableFromClipboard: root.noteFromClipboard
+        enableCharCount: root.noteCharCount
+        onCopyRequested: text => root.noteCopyRequested(text)
+        onPasteRequested: intoEditor => root.notePasteRequested(intoEditor)
+        onImageDiscarded: path => root.noteImageDiscarded(path)
+        onNoteAdded: (title, body, colorIndex, image) => root.noteAdded(title, body, colorIndex, image)
+        onNoteUpdated: (id, title, body, colorIndex, image) => root.noteUpdated(id, title, body, colorIndex, image)
         onNoteRemoved: id => root.noteRemoved(id)
         onNotePinned: id => root.notePinned(id)
         onAllCleared: root.allCleared()

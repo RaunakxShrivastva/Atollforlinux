@@ -844,6 +844,12 @@ Item {
                     notesVisible: Settings.notesEnabled
                     entries: ClipboardService.entries
                     notes: notes.notes
+                    imageDir: notes.imageDir
+                    notePinning: Settings.notePinning
+                    noteSearch: Settings.noteSearch
+                    noteColorFiltering: Settings.noteColorFiltering
+                    noteFromClipboard: Settings.noteFromClipboard
+                    noteCharCount: Settings.noteCharCount
                     hasNotification: notifService.hasActiveNotification
                     appName: notifService.appName
                     summary: notifService.summary
@@ -859,11 +865,14 @@ Item {
                         notifService.dismiss();
                         root.mode = "COMPACT";
                     }
-                    onNoteAdded: (title, body) => notes.add(title, body)
-                    onNoteUpdated: (id, title, body) => notes.update(id, title, body)
+                    onNoteAdded: (title, body, colorIndex, image) => notes.add(title, body, colorIndex, image)
+                    onNoteUpdated: (id, title, body, colorIndex, image) => notes.update(id, title, body, colorIndex, image)
                     onNoteRemoved: id => notes.remove(id)
                     onNotePinned: id => notes.togglePin(id)
                     onAllCleared: notes.clearAll()
+                    onNoteCopyRequested: text => root.copyToClipboard(text)
+                    onNotePasteRequested: intoEditor => root.readClipboardForNotes(intoEditor)
+                    onNoteImageDiscarded: path => notes.removeFile(path)
                 }
 
                 // Dedicated clipboard tab (clipboardDisplayMode == "notchTab").
@@ -988,5 +997,53 @@ Item {
     function exec(cmd) {
         toolProcess.command = ["bash", "-c", cmd];
         toolProcess.running = true;
+    }
+
+    // ---- Notes: clipboard copy/paste ----
+    // NotesView keeps out of Quickshell.Io so the dev harness can load it, so
+    // the two clipboard operations live here.
+    function copyToClipboard(text) {
+        var value = String(text || "");
+        if (value === "") return;
+        noteCopyProc.pending = value;
+        noteCopyProc.running = true;
+    }
+
+    property Process noteCopyProc: Process {
+        property string pending: ""
+        command: ["wl-copy", noteCopyProc.pending]
+    }
+
+    // Read the clipboard for the notes pane: an image type wins (written under
+    // NotesService's image dir, path reported back), otherwise text.
+    function readClipboardForNotes(intoEditor) {
+        notePasteProc.intoEditor = intoEditor;
+        notePasteProc.running = true;
+    }
+
+    property Process notePasteProc: Process {
+        property bool intoEditor: false
+        command: ["bash", "-c",
+            "t=$(wl-paste --list-types 2>/dev/null | grep -Eo 'image/(png|jpeg|gif|webp)' | head -1); " +
+            "if [ -n \"$t\" ]; then " +
+            "ext=${t#image/}; [ \"$ext\" = jpeg ] && ext=jpg; " +
+            "mkdir -p '" + notes.imageDir + "'; " +
+            "f='" + notes.imageDir + "/note_'$(date +%s%N)'.'\"$ext\"; " +
+            "wl-paste --type \"$t\" > \"$f\" 2>/dev/null && printf 'IMG:%s' \"$f\"; " +
+            "elif wl-paste --list-types 2>/dev/null | grep -qi text; then " +
+            "wl-paste --no-newline 2>/dev/null | head -c 4096; fi"]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                var out = this.text;
+                var imagePath = "";
+                var text = out;
+                if (out.indexOf("IMG:") === 0) {
+                    imagePath = out.substring(4).trim();
+                    text = "";
+                    if (imagePath === "") return;
+                }
+                notesClipboard.applyClipboard(text, imagePath, notePasteProc.intoEditor);
+            }
+        }
     }
 }

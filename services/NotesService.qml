@@ -4,7 +4,9 @@ import Quickshell.Io
 
 // Notes storage for the Notes tab (Productivity > Notes). A list of note items
 // persisted as JSON under $XDG_DATA_HOME/atoll, mirroring Atoll's NoteItem
-// (title, content, pinned, colorIndex). The legacy single-file notes.md is
+// (title, content, pinned, colorIndex, image). Attached images are files under
+// note-images/ rather than inline data, the same split Atoll uses
+// (NoteItem.imageFileName + NoteImages/). The legacy single-file notes.md is
 // migrated once on first load if it exists.
 QtObject {
     id: root
@@ -12,8 +14,12 @@ QtObject {
     readonly property string dir: (Quickshell.env("XDG_DATA_HOME") || (Quickshell.env("HOME") + "/.local/share")) + "/atoll"
     readonly property string path: dir + "/notes.json"
     readonly property string legacyPath: dir + "/notes.md"
+    // Attachments live beside the JSON, so the pair can be moved or backed up
+    // together (Atoll keeps NoteImages/ under Documents).
+    readonly property string imageDir: dir + "/note-images"
 
-    // [{ id, title, body, pinned, colorIndex, created }]
+    // [{ id, title, body, pinned, colorIndex, created, modified, image }]
+    // image is a path under imageDir, or "" for a note without an attachment.
     property var notes: []
     property bool loaded: false
 
@@ -23,6 +29,10 @@ QtObject {
         root.persist();
     }
 
+    function newId() {
+        return String(Date.now()) + "-" + Math.floor(Math.random() * 100000);
+    }
+
     function nextColor() {
         var maxIndex = -1;
         for (var i = 0; i < notes.length; i++)
@@ -30,24 +40,27 @@ QtObject {
         return (maxIndex + 1) % 6;
     }
 
-    function add(title, body) {
-        var id = String(Date.now()) + "-" + Math.floor(Math.random() * 1000);
+    function add(title, body, colorIndex, image) {
+        var now = Date.now();
         var next = notes.slice();
         next.unshift({
-            id: id,
+            id: newId(),
             title: title && title.length > 0 ? title : "New Note",
             body: body || "",
             pinned: false,
-            colorIndex: nextColor(),
-            created: Date.now()
+            colorIndex: colorIndex === undefined || colorIndex === null || colorIndex < 0
+                        ? nextColor() : Number(colorIndex),
+            created: now,
+            modified: now,
+            image: image || ""
         });
         notes = next;
         changed();
         saveTimer.restart();
-        return id;
+        return notes[0].id;
     }
 
-    function update(id, title, body) {
+    function update(id, title, body, colorIndex, image) {
         var next = notes.slice();
         for (var i = 0; i < next.length; i++) {
             if (next[i].id === id) {
@@ -55,6 +68,14 @@ QtObject {
                 for (var k in next[i]) copy[k] = next[i][k];
                 if (title !== undefined) copy.title = title;
                 if (body !== undefined) copy.body = body;
+                if (colorIndex !== undefined) copy.colorIndex = Number(colorIndex);
+                if (image !== undefined && image !== copy.image) {
+                    // The editor replaced or dropped the attachment: the file the
+                    // note no longer points at is dead weight.
+                    if (copy.image) removeFile(copy.image);
+                    copy.image = image;
+                }
+                copy.modified = Date.now();
                 next[i] = copy;
                 break;
             }
@@ -65,7 +86,15 @@ QtObject {
     }
 
     function remove(id) {
-        notes = notes.filter(function (n) { return n.id !== id; });
+        var next = [];
+        for (var i = 0; i < notes.length; i++) {
+            if (notes[i].id === id) {
+                if (notes[i].image) removeFile(notes[i].image);
+            } else {
+                next.push(notes[i]);
+            }
+        }
+        notes = next;
         changed();
         saveTimer.restart();
     }
@@ -88,18 +117,23 @@ QtObject {
 
     function clearAll() {
         notes = [];
+        wipeImages.running = true;
         changed();
         saveTimer.restart();
     }
 
-    // "Create from Clipboard": the first line becomes the title, the rest the body.
-    function fromClipboard(text) {
-        var value = String(text || "").trim();
-        if (value === "") return "";
-        var nl = value.indexOf("\n");
-        var title = nl > 0 ? value.substring(0, nl) : value;
-        var body = nl > 0 ? value.substring(nl + 1) : "";
-        return add(title.substring(0, 60), body);
+    // Delete one attachment file (ignore a missing one).
+    function removeFile(path) {
+        if (!path) return;
+        rmProc.command = ["bash", "-c", "rm -f -- '" + String(path).replace(/'/g, "'\\''") + "'"];
+        rmProc.running = true;
+    }
+
+    property Process rmProc: Process {}
+
+    // "Clear all" drops the notes' attachments with them.
+    property Process wipeImages: Process {
+        command: ["bash", "-c", "rm -rf -- '" + root.imageDir + "' 2>/dev/null || true"]
     }
 
     // Persistence. Read and write go through a shell so a missing file (first

@@ -148,6 +148,11 @@ QtObject {
                 { name: "Deep Work", duration: 2700, color: "#bf5af2" }
             ],
             enableNotes: false,
+            enableNotePinning: true,
+            enableNoteSearch: false,
+            enableNoteColorFiltering: false,
+            enableCreateFromClipboard: true,
+            enableNoteCharCount: true,
 
             // ---- Utilities ----
             enableClipboardManager: true,
@@ -287,6 +292,13 @@ QtObject {
     // when the shell starts (nothing survives a restart).
     readonly property bool persistClipboard: values.persistClipboardHistory !== false
     readonly property bool notesEnabled: values.enableNotes === true
+    // Notes sub-features (Atoll's enableNotePinning / Search / ColorFiltering /
+    // CreateFromClipboard / NoteCharCount). They only matter with notes on.
+    readonly property bool notePinning: notesEnabled && values.enableNotePinning !== false
+    readonly property bool noteSearch: notesEnabled && values.enableNoteSearch === true
+    readonly property bool noteColorFiltering: notesEnabled && values.enableNoteColorFiltering === true
+    readonly property bool noteFromClipboard: notesEnabled && values.enableCreateFromClipboard !== false
+    readonly property bool noteCharCount: notesEnabled && values.enableNoteCharCount !== false
     readonly property bool colorPickerEnabled: values.enableColorPickerFeature === true
     readonly property bool colorPickerIcon: colorPickerEnabled && values.showColorPickerIcon !== false
     readonly property bool colorFormats: values.showColorFormats !== false
