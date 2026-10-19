@@ -7,7 +7,7 @@ AudioService AudioService.qml
 BrightnessService BrightnessService.qml
 CaffeinateService CaffeinateService.qml
 NotesService NotesService.qml
-ClipboardService ClipboardService.qml
+singleton ClipboardService ClipboardService.qml
 AutostartService AutostartService.qml
 singleton ColorPickerService ColorPickerService.qml
 singleton TerminalService TerminalService.qml

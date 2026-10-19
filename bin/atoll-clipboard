@@ -1,0 +1,244 @@
+#!/usr/bin/env python3
+# Atoll for Linux - clipboard favorites store.
+#
+# Atoll's clipboard has two lists: the rolling history and "Favorites", items
+# pinned with a heart. cliphist (which backs the history here) has no pin
+# concept and its ids are not durable - `cliphist wipe` and the history limit
+# both recycle them - so a favorite is stored as a *copy* of the content, the
+# way Atoll's pinItem() writes a pinned image's PNG out so it survives the
+# history being trimmed.
+#
+# Store: $XDG_DATA_HOME/atoll/clipboard-favorites.json
+#   {"items": [{ id, created, kind, mime, match, preview, text?, file? }]}
+# Images live beside it in clip-favorites/<id>.<ext>.
+#
+# `match` is the cliphist preview line of the entry this favorite was pinned
+# from; the UI uses it to show a history row as already favorited.
+#
+# Usage:
+#   atoll-clipboard list
+#   atoll-clipboard pin <cliphist-id>
+#   atoll-clipboard unpin <favorite-id>
+#   atoll-clipboard clear
+#   atoll-clipboard pick <favorite-id>
+# Every subcommand prints the resulting store as JSON on stdout.
+import json
+import os
+import shutil
+import subprocess
+import sys
+import time
+import uuid
+from pathlib import Path
+
+HOME = Path.home()
+DATA = Path(os.environ.get("XDG_DATA_HOME", HOME / ".local" / "share")) / "atoll"
+STORE = DATA / "clipboard-favorites.json"
+IMAGES = DATA / "clip-favorites"
+
+PNG_SIG = b"\x89PNG\r\n\x1a\n"
+JPEG_SIG = b"\xff\xd8\xff"
+GIF_SIG = b"GIF8"
+
+
+def load():
+    try:
+        doc = json.loads(STORE.read_text())
+        items = doc.get("items")
+        return items if isinstance(items, list) else []
+    except Exception:
+        return []
+
+
+def save(items):
+    DATA.mkdir(parents=True, exist_ok=True)
+    tmp = STORE.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps({"items": items}, indent=2) + "\n")
+    tmp.replace(STORE)
+
+
+def human_bytes(n):
+    for unit in ("B", "KB", "MB", "GB"):
+        if n < 1024 or unit == "GB":
+            return ("%d %s" % (n, unit)) if unit == "B" else ("%.1f %s" % (n, unit))
+        n /= 1024.0
+
+
+def sniff(data):
+    """(kind, mime, extension) for the payload's leading bytes."""
+    if data.startswith(PNG_SIG):
+        return "Image", "image/png", "png"
+    if data.startswith(JPEG_SIG):
+        return "Image", "image/jpeg", "jpg"
+    if data.startswith(GIF_SIG):
+        return "Image", "image/gif", "gif"
+    return "Text", "text/plain", "txt"
+
+
+def cliphist_list():
+    """{id: preview} from `cliphist list`."""
+    try:
+        out = subprocess.run(["cliphist", "list"], capture_output=True, timeout=10).stdout
+    except Exception:
+        return {}
+    rows = {}
+    for line in out.decode("utf-8", "ignore").splitlines():
+        if "\t" not in line:
+            continue
+        raw_id, preview = line.split("\t", 1)
+        try:
+            rows[int(raw_id)] = preview
+        except ValueError:
+            continue
+    return rows
+
+
+def decode(cliphist_id):
+    try:
+        proc = subprocess.run(["cliphist", "decode", str(cliphist_id)],
+                              capture_output=True, timeout=15)
+        return proc.stdout
+    except Exception:
+        return b""
+
+
+def first_line(text, limit=80):
+    for line in text.splitlines():
+        line = line.strip()
+        if line:
+            return line[:limit]
+    return "(empty)"
+
+
+def cmd_list(_args):
+    return load()
+
+
+def cmd_pin(args):
+    if not args:
+        return load()
+    try:
+        cliphist_id = int(args[0])
+    except ValueError:
+        return load()
+    items = load()
+    preview = cliphist_list().get(cliphist_id, "")
+    # Already pinned (matched by the history preview it came from): no-op.
+    if preview and any(i.get("match") == preview for i in items):
+        return items
+
+    data = decode(cliphist_id)
+    if not data:
+        return items
+
+    kind, mime, ext = sniff(data)
+    fid = str(uuid.uuid4())
+    entry = {
+        "id": fid,
+        "created": time.time(),
+        "kind": kind,
+        "mime": mime,
+        "match": preview,
+    }
+    if kind == "Image":
+        IMAGES.mkdir(parents=True, exist_ok=True)
+        name = "%s.%s" % (fid, ext)
+        (IMAGES / name).write_bytes(data)
+        entry["file"] = name
+        entry["preview"] = "Image (%s)" % human_bytes(len(data))
+    else:
+        text = data.decode("utf-8", "replace")
+        entry["text"] = text
+        if not preview:
+            preview = first_line(text)
+        entry["match"] = preview
+        stripped = text.strip()
+        if stripped.startswith(("http://", "https://")) and " " not in stripped.split("\n")[0].strip():
+            entry["kind"] = "URL"
+        entry["preview"] = first_line(text) if not preview else preview
+
+    items.insert(0, entry)
+    save(items)
+    return items
+
+
+def cmd_unpin(args):
+    if not args:
+        return load()
+    fid = args[0]
+    items = load()
+    keep = []
+    for item in items:
+        if item.get("id") == fid:
+            if item.get("file"):
+                try:
+                    (IMAGES / item["file"]).unlink()
+                except OSError:
+                    pass
+            continue
+        keep.append(item)
+    save(keep)
+    return keep
+
+
+def cmd_clear(_args):
+    for item in load():
+        if item.get("file"):
+            try:
+                (IMAGES / item["file"]).unlink()
+            except OSError:
+                pass
+    save([])
+    return []
+
+
+def cmd_pick(args):
+    if not args:
+        return load()
+    fid = args[0]
+    items = load()
+    item = next((i for i in items if i.get("id") == fid), None)
+    if item is None:
+        return items
+    wl_copy = shutil.which("wl-copy")
+    if not wl_copy:
+        return items
+    mime = item.get("mime") or "text/plain"
+    if item.get("file"):
+        try:
+            payload = (IMAGES / item["file"]).read_bytes()
+        except OSError:
+            return items
+    else:
+        payload = (item.get("text") or "").encode("utf-8")
+    # wl-copy forks a background process that owns the selection; detach it and
+    # close our pipes so it cannot keep the caller's stdout open.
+    subprocess.run([wl_copy, "--type", mime], input=payload, timeout=10,
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                   start_new_session=True)
+    return items
+
+
+COMMANDS = {
+    "list": cmd_list,
+    "pin": cmd_pin,
+    "unpin": cmd_unpin,
+    "clear": cmd_clear,
+    "pick": cmd_pick,
+}
+
+
+def main(argv):
+    if len(argv) < 2 or argv[1] not in COMMANDS:
+        sys.stderr.write(__doc__ or "")
+        json.dump({"items": load()}, sys.stdout)
+        sys.stdout.write("\n")
+        return 1
+    items = COMMANDS[argv[1]](argv[2:])
+    json.dump({"items": items}, sys.stdout)
+    sys.stdout.write("\n")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

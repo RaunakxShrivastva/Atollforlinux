@@ -31,10 +31,21 @@ Item {
     signal colorPickerPanelRequested()
     property bool colorPopoverOpen: false
 
+    // Raised by the header clipboard button in "panel" mode; the shell toggles
+    // the floating clipboard panel. "popover" mode draws in the island instead.
+    signal clipboardPanelRequested()
+    property bool clipboardPopoverOpen: false
+
     // Clipboard placement: only "notchTab" gets its own tab; "separateTab" merges
     // it into the Notes tab (see Atoll's TabSelectionView).
     readonly property bool hasDedicatedClipboardTab:
         Settings.clipboardEnabled && Settings.clipboardMode === "notchTab"
+
+    // True while something in the island needs the keyboard (the clipboard
+    // popover's search field, the notes editor); shell.qml then lets the island
+    // take focus on demand.
+    readonly property bool wantsKeyboard:
+        root.clipboardPopoverOpen || notesClipboard.wantsKeyboard
 
     // Tabs that no longer exist (or that live elsewhere now) fall back.
     function sanitizeTab(tab) {
@@ -48,11 +59,13 @@ Item {
     readonly property bool expanded: mode !== "COMPACT"
     readonly property bool island: presentation !== "notch"
 
-    // Dismiss the extras menu and the colour popover whenever the island closes.
+    // Dismiss the extras menu, the colour popover and the clipboard popover
+    // whenever the island closes.
     onExpandedChanged: {
         if (!expanded) {
             extrasOpen = false;
             colorPopoverOpen = false;
+            clipboardPopoverOpen = false;
         }
     }
 
@@ -231,10 +244,6 @@ Item {
         id: downloads
         dir: Settings.str("downloadsPath", "~/Downloads")
         maxItems: Math.max(1, Settings.num("shelfMaxItems", 12))
-    }
-    ClipboardService {
-        id: clipboard
-        limit: Math.max(1, Settings.num("clipboardHistorySize", 3))
     }
     NotesService { id: notes }
     AudioService {
@@ -591,7 +600,9 @@ Item {
                 // The merged Notes tab carries the clipboard in "separateTab" mode.
                 showClipboardTab: Settings.clipboardSplit
                 showClipboardDedicatedTab: root.hasDedicatedClipboardTab
-                showClipboardAction: Settings.clipboardEnabled
+                // Atoll hides the header clipboard icon in "separateTab" mode;
+                // there the clipboard is part of the Notes tab.
+                showClipboardAction: Settings.clipboardHasAction
                                      && Settings.values.showClipboardIcon !== false
                 showStats: true
                 showNotes: Settings.notesEnabled
@@ -612,16 +623,30 @@ Item {
                 Layout.topMargin: Atoll.headerPadding
                 onTabSelected: tab => {
                     root.extrasOpen = false;
+                    // Both popovers float over the tab content, so switching tabs
+                    // (or dismissing the extras menu) puts them away.
+                    root.colorPopoverOpen = false;
+                    root.clipboardPopoverOpen = false;
                     root.activeTab = tab;
                 }
                 onActionTriggered: action => {
                     if (action === "clipboard") {
-                        // Header clipboard button: reveal the clipboard, either in
-                        // the merged Notes tab or the dedicated one.
-                        root.mode = "EXPANDED";
-                        if (root.hasDedicatedClipboardTab) {
+                        // Atoll routes the header clipboard button by
+                        // clipboardDisplayMode. The button is hidden in
+                        // "separateTab" mode (the clipboard lives in the Notes
+                        // tab), so that branch is only a fallback here.
+                        if (Settings.clipboardMode === "panel") {
+                            root.clipboardPanelRequested();
+                            root.mode = "COMPACT";
+                        } else if (Settings.clipboardMode === "popover") {
+                            root.mode = "EXPANDED";
+                            root.clipboardPopoverOpen = !root.clipboardPopoverOpen;
+                        } else if (root.hasDedicatedClipboardTab) {
+                            // notchTab: a second tap on the button leaves the tab.
+                            root.mode = "EXPANDED";
                             root.activeTab = root.activeTab === "CLIPBOARD" ? "HOME" : "CLIPBOARD";
                         } else {
+                            root.mode = "EXPANDED";
                             root.activeTab = root.activeTab === "NOTES" ? "HOME" : "NOTES";
                         }
                     } else if (action === "colorpicker") {
@@ -812,11 +837,12 @@ Item {
                 // In "Separate tab" mode the clipboard is listed beside the notes,
                 // split by a divider; in "notchTab" mode it gets its own tab.
                 NotesClipboardView {
+                    id: notesClipboard
                     anchors.fill: parent
                     visible: root.activeTab === "NOTES"
                     clipboardVisible: Settings.clipboardSplit && root.activeTab !== "CLIPBOARD"
                     notesVisible: Settings.notesEnabled
-                    entries: clipboard.entries
+                    entries: ClipboardService.entries
                     notes: notes.notes
                     hasNotification: notifService.hasActiveNotification
                     appName: notifService.appName
@@ -824,11 +850,11 @@ Item {
                     body: notifService.body
                     appIcon: notifService.appIcon
                     onPickRequested: id => {
-                        clipboard.pick(id);
+                        ClipboardService.pick(id);
                         root.mode = "COMPACT";
                     }
-                    onRemoveRequested: id => clipboard.remove(id)
-                    onClearRequested: clipboard.clear()
+                    onRemoveRequested: id => ClipboardService.remove(id)
+                    onClearRequested: ClipboardService.clear()
                     onDismissClicked: {
                         notifService.dismiss();
                         root.mode = "COMPACT";
@@ -848,18 +874,18 @@ Item {
                     ClipboardView {
                         anchors.fill: parent
                         columns: 2
-                        entries: clipboard.entries
+                        entries: ClipboardService.entries
                         hasNotification: notifService.hasActiveNotification
                         appName: notifService.appName
                         summary: notifService.summary
                         body: notifService.body
                         appIcon: notifService.appIcon
                         onPickRequested: id => {
-                            clipboard.pick(id);
+                            ClipboardService.pick(id);
                             root.mode = "COMPACT";
                         }
-                        onRemoveRequested: id => clipboard.remove(id)
-                        onClearRequested: clipboard.clear()
+                        onRemoveRequested: id => ClipboardService.remove(id)
+                        onClearRequested: ClipboardService.clear()
                         onDismissClicked: {
                             notifService.dismiss();
                             root.mode = "COMPACT";
@@ -939,6 +965,19 @@ Item {
                         root.colorPickerPanelRequested();
                     }
                     onCloseRequested: root.colorPopoverOpen = false
+                }
+
+                // ---- Clipboard popover (header clipboard, "Popover" mode) ----
+                // Atoll attaches a SwiftUI .popover to the clipboard button; here
+                // the card is docked under the header's trailing action row.
+                ClipboardPopover {
+                    id: clipboardPopover
+                    service: ClipboardService
+                    anchors.top: parent.top
+                    anchors.right: parent.right
+                    anchors.rightMargin: 34
+                    visible: root.clipboardPopoverOpen
+                    onCloseRequested: root.clipboardPopoverOpen = false
                 }
             }
         }

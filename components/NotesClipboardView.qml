@@ -20,6 +20,11 @@ RowLayout {
     property string appIcon: ""
     property bool hasNotification: false
 
+    // True while the notes editor is open: the island has to take the keyboard
+    // on demand for its text fields to be typeable (see shell.qml).
+    readonly property bool wantsKeyboard:
+        root.notesVisible && (notesView.editingNew || notesView.editingId !== "")
+
     signal pickRequested(int id)
     signal removeRequested(int id)
     signal clearRequested()
@@ -59,6 +64,7 @@ RowLayout {
     }
 
     NotesView {
+        id: notesView
         Layout.fillWidth: true
         Layout.fillHeight: true
         visible: root.notesVisible

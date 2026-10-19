@@ -1,3 +1,4 @@
+pragma Singleton
 import QtQuick
 import Quickshell
 import Quickshell.Io
@@ -10,12 +11,24 @@ import Quickshell.Io
 // Each entry is { id, preview, kind, age, thumb } mirroring the row model of
 // Atoll's NotchClipboardView: a document glyph, the text (or an image
 // thumbnail), a "Text"/"Image" subtitle and a right-aligned relative age.
+//
+// Favorites (Atoll's `pinnedItems`) are a second, independent list. cliphist
+// has no pin concept and recycles ids, so a favorite is a copy of the content
+// kept by bin/atoll-clipboard - text inline, images as PNG files under
+// $XDG_DATA_HOME/atoll/clip-favorites - exactly like Atoll writing a pinned
+// image out with persistImageFile() so trimming the history cannot lose it.
+//
+// A singleton because three surfaces share it: the notch tab (NotchContainer),
+// the attached popover and the floating panel window.
 QtObject {
     id: root
 
-    property var entries: []      // [{ id, preview, kind, age, thumb }]
+    property var entries: []      // [{ id, preview, kind, age, ageLong, thumb }]
+    property var favorites: []    // [{ id, kind, mime, preview, age, ageLong, text?, file? }]
     property bool available: false
-    property int limit: 3
+    // Atoll's clipboardHistorySize is the size of the history itself, so it
+    // bounds both the notch card row and the popover/panel list.
+    readonly property int limit: Math.max(1, Settings.num("clipboardHistorySize", 3))
     property int revision: 0      // bumped after thumbnails land
 
     readonly property string cacheDir: (Quickshell.env("XDG_CACHE_HOME") || (Quickshell.env("HOME") + "/.cache")) + "/atoll/clip"    // id -> first-seen epoch ms, so entries get a stable relative age.
@@ -40,6 +53,99 @@ QtObject {
         refreshDebounce.restart();
     }
 
+    // ---- Favorites ------------------------------------------------------
+    // Pinning reads the cliphist entry once and stores it; nothing here tracks
+    // cliphist ids beyond the preview string used to mark a history row as
+    // already favorited.
+
+    readonly property string helper:
+        String(Quickshell.shellDir).replace(/^file:\/\//, "") + "/bin/atoll-clipboard"
+    readonly property string dataDir:
+        (Quickshell.env("XDG_DATA_HOME") || (Quickshell.env("HOME") + "/.local/share")) + "/atoll"
+
+    function refreshFavorites() { favList.running = true; }
+
+    function pin(id) {
+        favCmd.command = [root.helper, "pin", String(id)];
+        favCmd.running = true;
+    }
+
+    function unpin(fid) {
+        favCmd.command = [root.helper, "unpin", String(fid)];
+        favCmd.running = true;
+    }
+
+    function clearFavorites() {
+        favCmd.command = [root.helper, "clear"];
+        favCmd.running = true;
+    }
+
+    function pickFavorite(fid) {
+        favPick.command = [root.helper, "pick", String(fid)];
+        favPick.running = true;
+    }
+
+    // A history row is favorited when some favorite was pinned from the same
+    // cliphist preview (cliphist offers no content hash in `list`).
+    function isFavorite(entry) {
+        return root.favoriteFor(entry) !== null;
+    }
+
+    function favoriteFor(entry) {
+        if (!entry) return null;
+        var key = entry.match !== undefined ? entry.match : entry.preview;
+        for (var i = 0; i < root.favorites.length; i++)
+            if (root.favorites[i].match === key) return root.favorites[i];
+        return null;
+    }
+
+    function favoriteThumb(fav) {
+        return fav && fav.file ? "file://" + root.dataDir + "/clip-favorites/" + fav.file : "";
+    }
+
+    // An entry is copied back with the favorite's own MIME type, so a pinned
+    // image returns as image/png rather than as unrecognised bytes.
+    property Process favCmd: Process {
+        stdout: StdioCollector {
+            onStreamFinished: root.parseFavorites(this.text)
+        }
+    }
+
+    property Process favPick: Process {}
+
+    property Process favList: Process {
+        command: [root.helper, "list"]
+        stdout: StdioCollector {
+            onStreamFinished: root.parseFavorites(this.text)
+        }
+    }
+
+    function parseFavorites(text) {
+        var out = [];
+        try {
+            var doc = JSON.parse(String(text).trim());
+            var items = doc && doc.items ? doc.items : [];
+            for (var i = 0; i < items.length; i++) {
+                var it = items[i];
+                out.push({
+                    id: it.id,
+                    kind: it.kind || "Text",
+                    mime: it.mime || "text/plain",
+                    match: it.match || "",
+                    preview: it.preview || "",
+                    text: it.text || "",
+                    file: it.file || "",
+                    thumb: root.favoriteThumb(it),
+                    age: root.relativeAge((it.created || 0) * 1000),
+                    ageLong: root.longAge((it.created || 0) * 1000)
+                });
+            }
+        } catch (e) {
+            out = [];
+        }
+        root.favorites = out;
+    }
+
     function thumbFor(id) {
         return "file://" + root.cacheDir + "/" + id + ".png";
     }
@@ -54,6 +160,17 @@ QtObject {
         var h = Math.floor(m / 60);
         if (h < 24) return h + "h";
         return Math.floor(h / 24) + "d";
+    }
+
+    // Spelled-out variant for the popover/panel rows, matching Atoll's
+    // timeAgoString(): "Just now" / "4m ago" / "2h ago" / "3d ago".
+    function longAge(ms) {
+        if (!ms) return "";
+        var s = Math.max(0, (Date.now() - ms) / 1000);
+        if (s < 60) return "Just now";
+        if (s < 3600) return Math.floor(s / 60) + "m ago";
+        if (s < 86400) return Math.floor(s / 3600) + "h ago";
+        return Math.floor(s / 86400) + "d ago";
     }
 
     property Process listProc: Process {
@@ -120,7 +237,11 @@ QtObject {
 
             // cliphist marks binary payloads; treat those as images.
             var binary = preview.indexOf("[[ binary data") === 0;
-            var kind = binary ? "Image" : "Text";
+            // cliphist's preview is the payload itself for text, so a lone URL
+            // can be labelled the way Atoll labels its .url items.
+            var isUrl = !binary && /^https?:\/\/\S+$/.test(preview.trim())
+                        && preview.split("\n").length === 1;
+            var kind = binary ? "Image" : (isUrl ? "URL" : "Text");
             var thumb = "";
             if (binary) {
                 if (root.thumbsDone[String(id)]) thumb = root.thumbFor(id);
@@ -135,9 +256,15 @@ QtObject {
 
             out.push({
                 id: id,
-                preview: preview,
+                // Atoll shows the word "Image" for an image item rather than
+                // cliphist's `[[ binary data ... ]]` marker.
+                preview: binary ? "Image" : preview,
+                // The raw cliphist preview, used to match a history entry
+                // against the favorite it was pinned from.
+                match: preview,
                 kind: kind,
                 age: root.relativeAge(root.stamps[key]),
+                ageLong: root.longAge(root.stamps[key]),
                 thumb: thumb
             });
         }
@@ -195,8 +322,20 @@ QtObject {
     Component.onCompleted: {
         mkdir.running = true;
         stampRead.running = true;
+        // "Persist clipboard history" off: cliphist always writes its store, so
+        // the session-only behaviour means starting from an empty one.
+        if (!Settings.persistClipboard) {
+            persistWipe.command = ["bash", "-c",
+                "command -v cliphist >/dev/null && cliphist wipe 2>/dev/null || true"];
+            persistWipe.running = true;
+        }
         refresh();
+        refreshFavorites();
         watcher.running = true;
+    }
+
+    property Process persistWipe: Process {
+        onRunningChanged: if (!running) root.refresh()
     }
 
     property Process mkdir: Process {

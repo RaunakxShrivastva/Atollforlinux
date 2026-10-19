@@ -22,6 +22,12 @@ ShellRoot {
         id: colorPickerWindow
     }
 
+    // Clipboard panel (Utilities > Clipboard, "Panel" display mode): opened by
+    // the notch's clipboard button.
+    ClipboardPanelWindow {
+        id: clipboardPanelWindow
+    }
+
     // General > "Launch at login": keeps the autostart entry in sync with the
     // setting.
     AutostartService {
@@ -73,8 +79,12 @@ ShellRoot {
             WlrLayershell.layer: WlrLayer.Overlay
             WlrLayershell.namespace: "atoll-notch"
             WlrLayershell.exclusiveZone: 0
-            // The island has no text input: never take the keyboard.
-            WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
+            // The island has no text input of its own, so it never takes the
+            // keyboard - except while something with a text field is open in it
+            // (the clipboard popover's search, the notes editor), when it asks
+            // for focus on demand so those fields can be typed into.
+            WlrLayershell.keyboardFocus: notch.wantsKeyboard
+                ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
 
             // The window is deliberately larger than the pill (it must fit the
             // expanded card without a compositor resize during the spring).
@@ -104,6 +114,7 @@ ShellRoot {
                 anchors.horizontalCenter: parent.horizontalCenter
                 onSettingsRequested: settingsWindow.open()
                 onColorPickerPanelRequested: colorPickerWindow.toggle()
+                onClipboardPanelRequested: clipboardPanelWindow.toggle()
             }
         }
     }

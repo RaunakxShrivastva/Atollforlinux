@@ -40,8 +40,26 @@ case "$1" in
         quickshell -p "$ATOLL_DIR/shell.qml" ipc call colorpicker "${1:-toggle}" 2>/dev/null \
             || echo "Atoll is not running. Start it with: atoll start"
         ;;
+    clipboard|clip)
+        shift
+        case "${1:-toggle}" in
+            favorites | unpin | pick)
+                exec "$ATOLL_DIR/bin/atoll-clipboard" "${1}" "${2:-}"
+                ;;
+            clear-favorites)
+                exec "$ATOLL_DIR/bin/atoll-clipboard" clear
+                ;;
+            pin)
+                exec "$ATOLL_DIR/bin/atoll-clipboard" pin "${2:-}"
+                ;;
+            *)
+                quickshell -p "$ATOLL_DIR/shell.qml" ipc call clipboard "${1:-toggle}" 2>/dev/null \
+                    || echo "Atoll is not running. Start it with: atoll start"
+                ;;
+        esac
+        ;;
     *)
-        echo "Usage: atoll {start|stop|restart|status|settings|close-settings|colorpicker [open|close|toggle|pick|clear]}"
+        echo "Usage: atoll {start|stop|restart|status|settings|close-settings|colorpicker [open|close|toggle|pick|clear]|clipboard [open|close|toggle|pin <id>|favorites|clear-favorites]}"
         echo "Executing Atoll in foreground..."
         cd "$ATOLL_DIR" && exec quickshell -p shell.qml
         ;;

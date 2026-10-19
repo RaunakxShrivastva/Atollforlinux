@@ -152,8 +152,10 @@ QtObject {
             // ---- Utilities ----
             enableClipboardManager: true,
             showClipboardIcon: true,
-            clipboardDisplayMode: "separateTab",
+            // Atoll's default display mode is the floating panel.
+            clipboardDisplayMode: "panel",
             clipboardHistorySize: 3,
+            persistClipboardHistory: true,
             enableColorPickerFeature: true,
             colorPickerDisplayMode: "panel",
             colorPickerFormat: "hex",
@@ -262,15 +264,28 @@ QtObject {
     readonly property int calendarUpcomingCount: root.num("calendarUpcomingCount", 5)
     readonly property bool timerFeature: values.enableTimerFeature === true
     readonly property bool clipboardEnabled: values.enableClipboardManager === true
-    // Clipboard placement (Utilities > Clipboard > "Display mode"). Atoll:
-    // .separateTab merges the clipboard into the Notes tab (two panes, see
-    // NotchNotesView.showSplitView); .notchTab gives it a dedicated tab. The
-    // legacy "panel"/"popover"/"tab" values fall back to the merged view so an
-    // older settings.json keeps working.
-    readonly property string clipboardMode: root.str("clipboardDisplayMode", "separateTab") === "notchTab"
-        || root.str("clipboardDisplayMode", "separateTab") === "tab"
-        ? "notchTab" : "separateTab"
+    // Clipboard placement (Utilities > Clipboard > "Display mode"), matching
+    // Atoll's ClipboardDisplayMode:
+    //   .popover      - dropdown attached to the header clipboard button
+    //   .panel        - floating 380x480 panel window
+    //   .separateTab  - merged into the Notes tab as a second pane
+    //   .notchTab     - dedicated tab inside the notch
+    // The legacy "tab" value falls back to the dedicated tab so an older
+    // settings.json keeps working.
+    readonly property string clipboardMode: {
+        var raw = root.str("clipboardDisplayMode", "panel");
+        if (raw === "popover" || raw === "panel" || raw === "notchTab") return raw;
+        if (raw === "tab") return "notchTab";
+        return "separateTab";
+    }
     readonly property bool clipboardSplit: clipboardEnabled && clipboardMode === "separateTab"
+    // True when the header shows a clipboard button of its own (every mode but
+    // the merged Notes tab - Atoll does the same in DynamicIslandHeader).
+    readonly property bool clipboardHasAction: clipboardEnabled && clipboardMode !== "separateTab"
+    // Atoll's persistClipboardHistory: off keeps the history for the session
+    // only. cliphist always writes its store, so "off" means the store is wiped
+    // when the shell starts (nothing survives a restart).
+    readonly property bool persistClipboard: values.persistClipboardHistory !== false
     readonly property bool notesEnabled: values.enableNotes === true
     readonly property bool colorPickerEnabled: values.enableColorPickerFeature === true
     readonly property bool colorPickerIcon: colorPickerEnabled && values.showColorPickerIcon !== false
