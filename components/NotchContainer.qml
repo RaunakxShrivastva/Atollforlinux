@@ -41,6 +41,7 @@ Item {
         if (tab === "CALENDAR") return "HOME";
         if (tab === "CLIPBOARD" && !hasDedicatedClipboardTab) return "NOTES";
         if (tab === "TERMINAL" && !Settings.terminalEnabled) return "HOME";
+        if (tab === "USAGE" && !Settings.llmUsageEnabled) return "HOME";
         return tab;
     }
 
@@ -596,6 +597,7 @@ Item {
                 showNotes: Settings.notesEnabled
                 showDownloads: Settings.values.enableDownloadsWidget === true
                 showTerminal: Settings.terminalEnabled
+                showUsage: Settings.llmUsageEnabled
                 reduceMotion: Settings.reduceMotionEnabled
                 showColorPicker: Settings.colorPickerIcon
                 showBattery: Settings.showBattery
@@ -761,6 +763,20 @@ Item {
                     showGPU: Settings.statsShowGPU
                     showNetwork: Settings.statsShowNetwork
                     showDisk: Settings.statsShowDisk
+                }
+
+                // ---- Usage tab (Atoll's NotchLLMUsageView) ----
+                // Atoll refreshes on the view's .onAppear; a tab switch is the
+                // same moment here. The service debounces to one scan a minute.
+                LLMUsageView {
+                    anchors.fill: parent
+                    visible: root.activeTab === "USAGE"
+                    service: LLMUsageService
+                    providers: Settings.llmProviders.filter(
+                        p => Settings.llmProviderEnabled(p.id))
+                    featureEnabled: Settings.llmUsageEnabled
+                    onVisibleChanged: if (visible) LLMUsageService.refreshAll(
+                        Settings.llmEnabledProviders, false)
                 }
 
                 TimerWidget {

@@ -127,6 +127,7 @@ QtObject {
         switch (tab) {
             case "HOME":      return 200; // media player (90pt art + transport) beside the calendar
             case "STATS":     return 198; // two rows of cards (3-over-2) need the room
+            case "USAGE":     return 200; // one row of provider cards (gauges + windows)
             case "TIMER":     return 200;
             case "CLIPBOARD": return 200;
             case "CALENDAR":  return 278;

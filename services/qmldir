@@ -11,5 +11,6 @@ ClipboardService ClipboardService.qml
 AutostartService AutostartService.qml
 singleton ColorPickerService ColorPickerService.qml
 singleton TerminalService TerminalService.qml
+singleton LLMUsageService LLMUsageService.qml
 DownloadsService DownloadsService.qml
 CalendarService CalendarService.qml

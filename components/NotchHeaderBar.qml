@@ -31,6 +31,7 @@ RowLayout {
     property bool showCaffeinate: false
     property bool showDownloads: false
     property bool showTerminal: false
+    property bool showUsage: false
     property bool extrasOpen: false
     property bool reduceMotion: false
     property bool caffeinateActive: false
@@ -48,6 +49,7 @@ RowLayout {
         { id: "SHELF",     icon: "tray.fill" },
         { id: "TIMER",     icon: "timer" },
         { id: "STATS",     icon: "chart.xyaxis.line" },
+        { id: "USAGE",     icon: "chart.bar.doc.horizontal" },
         { id: "NOTES",     icon: "note.text" },
         { id: "CLIPBOARD", icon: "doc.on.clipboard" },
         { id: "DOWNLOADS", icon: "arrow.down.circle" },
@@ -86,6 +88,7 @@ RowLayout {
         if (t.id === "SHELF" && !showShelf) return false;
         if (t.id === "TIMER" && !showTimer) return false;
         if (t.id === "STATS" && !showStats) return false;
+        if (t.id === "USAGE" && !showUsage) return false;
         if (t.id === "CLIPBOARD" && !showClipboardDedicatedTab) return false;
         // The merged Notes tab carries the clipboard too when they are combined.
         if (t.id === "NOTES" && !showNotes && !showClipboardTab) return false;

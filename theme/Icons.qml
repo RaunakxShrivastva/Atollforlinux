@@ -25,6 +25,9 @@ QtObject {
         "doc.richtext": "article",
         "questionmark.circle": "help",
 
+        // ---- Usage tab (NotchLLMUsageView: ProgressView spinner) ----
+        "progress_activity": "progress_activity",
+
         // ---- Header extras ("…" overflow) ----
         "ellipsis": "more_horiz",
         "arrow.down.forward.and.arrow.up.backward": "unfold_more",

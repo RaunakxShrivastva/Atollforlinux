@@ -177,6 +177,14 @@ QtObject {
             enableTerminalFeature: false,
             terminalEmulator: "auto",
             terminalQuickCommands: "htop, ls -la ~, df -h, sensors",
+            // Stats > LLM Usage Monitor (Constants.swift). Off by default; adds
+            // the "Usage" tab.
+            enableLLMUsageFeature: false,
+            enableClaudeProvider: true,
+            enableCodexProvider: true,
+            enableCursorProvider: true,
+            enableAntigravityProvider: true,
+            enableNewAPIProvider: false,
 
             // ---- Integrations ----
             enableExtensions: false,
@@ -357,6 +365,26 @@ QtObject {
     readonly property var terminalCommands: root.str("terminalQuickCommands", "")
         .split(",").map(function (c) { return c.trim(); })
         .filter(function (c) { return c !== ""; })
+
+    // ---- LLM usage (Usage tab; Stats > LLM Usage Monitor) ----
+    readonly property bool llmUsageEnabled: values.enableLLMUsageFeature === true
+    // ProviderID order (UsageProvider.swift). `key` is the Defaults key suffix.
+    readonly property var llmProviders: [
+        { id: "claude",      name: "Claude",      key: "enableClaudeProvider" },
+        { id: "codex",       name: "Codex",       key: "enableCodexProvider" },
+        { id: "cursor",      name: "Cursor",      key: "enableCursorProvider" },
+        { id: "antigravity", name: "Antigravity", key: "enableAntigravityProvider" },
+        { id: "newAPI",      name: "New API",     key: "enableNewAPIProvider" }
+    ]
+    function llmProviderEnabled(id) {
+        var list = root.llmProviders;
+        for (var i = 0; i < list.length; i++)
+            if (list[i].id === id) return values[list[i].key] === true;
+        return false;
+    }
+    readonly property var llmEnabledProviders: root.llmProviders
+        .filter(function (p) { return root.llmProviderEnabled(p.id); })
+        .map(function (p) { return p.id; })
 
     property FileView file: FileView {
         path: root.path
