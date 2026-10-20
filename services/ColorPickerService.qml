@@ -38,9 +38,10 @@ QtObject {
 
     // ---------------- picking ----------------
     //
-    // SkyLight-style screen pick: grab one full-screen frame, then let
-    // component/ColorPickOverlay.qml sample it under the pointer (hyprpicker
-    // needs zwlr_screencopy_v1, which KWin does not offer).
+    // Full-screen pick: grab one frame, then answer colour queries from a
+    // persistent helper that keeps the raw pixels in memory. (hyprpicker needs
+    // zwlr_screencopy_v1, which KWin does not offer; spawning ImageMagick per
+    // mouse move was far too slow.)
 
     property bool capturing: false
     property bool overlayVisible: false
@@ -48,20 +49,24 @@ QtObject {
     property string hoverHex: "#ffffff"
     property string hoverRgb: "rgb(255, 255, 255)"
 
+    readonly property string helper:
+        Quickshell.shellDir.toString().replace(/^file:\/\//, "") + "/bin/atoll-pick-sample.py"
+
     property int _sampleX: 0
     property int _sampleY: 0
+    property bool _pending: false
 
     function pick() {
         if (root.capturing || root.overlayVisible) return;
         root.capturing = true;
         root.overlayVisible = false;
-        // Let the island collapse first, so the frame is the desktop and not
-        // the notch.
+        // Give the island animation a head start; Spectacle takes ~2 s to
+        // deliver its frame, so the notch is long gone by then.
         root.captureDelay.restart();
     }
 
     property Timer captureDelay: Timer {
-        interval: 380
+        interval: 150
         onTriggered: root.capture.running = true
     }
 
@@ -72,37 +77,51 @@ QtObject {
             + "test -s '" + root.tmpShot + "'"]
         onExited: code => {
             root.capturing = false;
-            if (code === 0) {
-                root.shotUrl = "file://" + root.tmpShot + "?t=" + Date.now();
-                root.hoverHex = "#ffffff";
-                root.hoverRgb = "rgb(255, 255, 255)";
-                root.overlayVisible = true;
-            } else {
+            if (code !== 0) {
                 root.failed("Could not capture the screen for the colour picker.");
+                return;
             }
+            root.shotUrl = "file://" + root.tmpShot + "?t=" + Date.now();
+            root.hoverHex = "#ffffff";
+            root.hoverRgb = "rgb(255, 255, 255)";
+            root.overlayVisible = true;
+            // The sampler decodes the frozen frame once, then answers from
+            // memory. Colours go live a moment after the loupe appears.
+            root.sampler.command = ["python3", root.helper, root.tmpShot];
+            root.sampler.running = true;
         }
     }
 
+    // Pointer position -> helper query. Kept off the mouse-move path so the
+    // loupe never waits on a subprocess.
     function sampleAt(x, y) {
         root._sampleX = x;
         root._sampleY = y;
-        root.sampleTimer.restart();
+        root._pending = true;
     }
 
+    // Repeating, not restart-on-move: a 1 kHz mouse would keep resetting a
+    // single-shot timer, so the hex would only update once the pointer stopped.
     property Timer sampleTimer: Timer {
-        interval: 45
+        interval: 12
+        repeat: true
+        running: root.overlayVisible
         onTriggered: {
-            if (!root.overlayVisible) return;
-            root.sampleProc.running = true;
-            root.sampleProc.command = ["sh", "-c",
-                "magick '" + root.tmpShot + "' -crop 1x1+" + root._sampleX + "+" + root._sampleY
-                + " -depth 8 -format '%[hex:p{0,0}]' info: 2>/dev/null"]
+            if (!root._pending || !root.sampler.running) return;
+            root._pending = false;
+            root.sampler.write(root._sampleX + " " + root._sampleY + "\n");
         }
     }
 
-    property Process sampleProc: Process {
+    property Process sampler: Process {
+        stdinEnabled: true
         stdout: SplitParser {
             onRead: line => root.acceptSample(line)
+        }
+        onExited: code => {
+            // Stop() kills the helper on purpose; only report a real failure.
+            if (root.overlayVisible)
+                root.failed("The colour sampler stopped (python3 + Pillow are required).");
         }
     }
 
@@ -113,14 +132,19 @@ QtObject {
         root.hoverRgb = root.toRgb(c);
     }
 
+    function stop() {
+        root.overlayVisible = false;
+        if (root.sampler.running) root.sampler.running = false;
+    }
+
     function commitPick() {
         var c = root.parseHex(root.hoverHex);
-        root.overlayVisible = false;
+        root.stop();
         if (c !== null) root.addColor(c);
     }
 
     function cancelPick() {
-        root.overlayVisible = false;
+        root.stop();
     }
 
     // A picked colour -> history -> clipboard.

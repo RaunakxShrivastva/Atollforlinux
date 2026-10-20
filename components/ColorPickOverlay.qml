@@ -36,16 +36,21 @@ PanelWindow {
         anchors.fill: parent
         source: ColorPickerService.shotUrl
         fillMode: Image.Stretch
-        smooth: false
-        cache: false
+        smooth: true
         asynchronous: false
-
+        onStatusChanged: if (status === Image.Ready && win.visible)
+                             win.sampleAt(win.cursorX, win.cursorY)
     }
 
+    // Intrinsic size of the grab in device pixels. (Image.sourceSize is the
+    // requested size, not the loaded one - using it pinned every sample to 0,0.)
+    readonly property real shotDpr:
+        shot.implicitWidth > 0 ? shot.implicitWidth / Math.max(1, win.width) : 1
+
     function imagePixel(mx, my) {
-        var sw = shot.sourceSize.width;
-        var sh = shot.sourceSize.height;
-        if (!sw || !sh)
+        var sw = Math.round(shot.implicitWidth);
+        var sh = Math.round(shot.implicitHeight);
+        if (!sw || !sh || win.width <= 0 || win.height <= 0)
             return [0, 0];
         return [Math.max(0, Math.min(sw - 1, Math.floor(mx * sw / win.width))),
                 Math.max(0, Math.min(sh - 1, Math.floor(my * sh / win.height)))];
@@ -72,8 +77,6 @@ PanelWindow {
 
     readonly property int loupeSize: 156
     readonly property int loupePixels: 15
-    readonly property int cell: loupeSize / loupePixels
-
     MouseArea {
         anchors.fill: parent
         hoverEnabled: true
@@ -89,7 +92,14 @@ PanelWindow {
             else
                 ColorPickerService.cancelPick();
         }
-        Keys.onEscapePressed: ColorPickerService.cancelPick()
+    }
+
+    // Esc is handled at the window level: a disabled or unfocused MouseArea
+    // would swallow it otherwise.
+    Shortcut {
+        sequence: "Escape"
+        enabled: win.visible
+        onActivated: ColorPickerService.cancelPick()
     }
 
     // Thin crosshair all the way across the frozen frame.
@@ -125,52 +135,59 @@ PanelWindow {
         y: Math.round(Math.min(win.height - height - 12,
                                Math.max(12, win.cursorY + 22)))
 
-        Image {
+        // Magnifier: the frozen frame is scaled up and clipped, rather than
+        // asking Image for a new sourceClipRect on every pointer move (which
+        // reloaded the PNG and made the loupe crawl).
+        Item {
             id: zoom
             x: 1
             y: 1
             width: win.loupeSize - 2
             height: win.loupeSize - 2
-            source: ColorPickerService.shotUrl
-            cache: false
-            smooth: false
-            fillMode: Image.Stretch
-            sourceClipRect: {
-                var p = win.imagePixel(win.cursorX, win.cursorY);
-                var half = Math.floor(win.loupePixels / 2);
-                return Qt.rect(p[0] - half, p[1] - half, win.loupePixels, win.loupePixels);
-            }
-        }
+            clip: true
 
-        // Pixel grid + the centre cell.
-        Repeater {
-            model: win.loupePixels + 1
-            Rectangle {
-                x: index * win.cell
-                y: 1
-                width: 1
-                height: win.loupeSize - 2
-                color: "#33000000"
+            readonly property real zoomFactor: width * win.shotDpr / win.loupePixels
+            readonly property real cellSize: width / win.loupePixels
+
+            Image {
+                source: ColorPickerService.shotUrl
+                smooth: false
+                width: Math.ceil(win.width * zoom.zoomFactor)
+                height: Math.ceil(win.height * zoom.zoomFactor)
+                x: -(win.cursorX * zoom.zoomFactor - zoom.width / 2)
+                y: -(win.cursorY * zoom.zoomFactor - zoom.height / 2)
             }
-        }
-        Repeater {
-            model: win.loupePixels + 1
-            Rectangle {
-                x: 1
-                y: index * win.cell
-                width: win.loupeSize - 2
-                height: 1
-                color: "#33000000"
+
+            // Pixel grid + the centre cell.
+            Repeater {
+                model: win.loupePixels + 1
+                Rectangle {
+                    x: index * zoom.cellSize
+                    y: 0
+                    width: 1
+                    height: zoom.height
+                    color: "#33000000"
+                }
             }
-        }
-        Rectangle {
-            x: 1 + Math.floor(win.loupePixels / 2) * win.cell
-            y: 1 + Math.floor(win.loupePixels / 2) * win.cell
-            width: win.cell
-            height: win.cell
-            color: "transparent"
-            border.width: 2
-            border.color: Colors.white
+            Repeater {
+                model: win.loupePixels + 1
+                Rectangle {
+                    x: 0
+                    y: index * zoom.cellSize
+                    width: zoom.width
+                    height: 1
+                    color: "#33000000"
+                }
+            }
+            Rectangle {
+                x: Math.floor(win.loupePixels / 2) * zoom.cellSize
+                y: Math.floor(win.loupePixels / 2) * zoom.cellSize
+                width: zoom.cellSize
+                height: zoom.cellSize
+                color: "transparent"
+                border.width: 2
+                border.color: Colors.white
+            }
         }
 
         Row {
