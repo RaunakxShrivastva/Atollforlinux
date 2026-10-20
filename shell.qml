@@ -108,7 +108,8 @@ ShellRoot {
 
             NotchContainer {
                 id: notch
-                presentation: Settings.displayStyle === "floating" ? "island" : "notch"
+                presentation: Settings.displayStyle === "floating" ? "island"
+                            : (Settings.displayStyle === "menuBar" ? "menuBar" : "notch")
                 anchors.top: parent.top
                 anchors.topMargin: presentation === "island" ? Atoll.islandTopOffset : 0
                 anchors.horizontalCenter: parent.horizontalCenter

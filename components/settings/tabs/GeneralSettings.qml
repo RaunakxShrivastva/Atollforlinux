@@ -89,6 +89,7 @@ ColumnLayout {
         }
         FormRow {
             label: "External display style"
+            description: "Menu bar sits flush with the top edge; Notch keeps rounded top corners."
             FormPicker {
                 options: [
                     { value: "notch", label: "Notch" },

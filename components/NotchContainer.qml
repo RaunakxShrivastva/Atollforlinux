@@ -14,6 +14,9 @@ import "lyrics.js" as Lyrics
 //   the top edge).
 // presentation "notch": the wide top-anchored panel that replaces a real macOS
 //   notch (640x200, radii top19/bottom24).
+// presentation "menuBar": the same top-anchored panel, but flush with the top
+//   edge (square top corners) and closed at the menu-bar height, so it reads as
+//   a dropdown from the system bar rather than a cutout below it.
 Item {
     id: root
 
@@ -59,7 +62,8 @@ Item {
     }
 
     readonly property bool expanded: mode !== "COMPACT"
-    readonly property bool island: presentation !== "notch"
+    readonly property bool island: presentation === "island"
+    readonly property bool menuBar: presentation === "menuBar"
 
     // Dismiss the extras menu, the colour popover and the clipboard popover
     // whenever the island closes.
@@ -118,7 +122,7 @@ Item {
     // Collapsed size. The media strip is wider than the idle pill (art +
     // title/artist + waveform), so the closed pill grows while a track is up.
     // Heights honour Appearance > "Notch size" (notch mode) / "Non-notch size".
-    readonly property real compactBaseHeight: island
+    readonly property real compactBaseHeight: (island || menuBar)
         ? (Settings.nonNotchHeightMode === "custom" ? Settings.nonNotchHeight : Atoll.closedHeight)
         : (Settings.notchHeightMode === "custom" ? Settings.notchHeight : Atoll.closedHeight)
 
@@ -197,8 +201,12 @@ Item {
 
     // In notch mode the shape insets its side walls by topRadius, so content is
     // inset to match; the pill fills edge-to-edge.
-    readonly property real closedTopRadius: island ? Atoll.islandClosedRadius : Atoll.notchClosedTopRadius
-    readonly property real openTopRadius: island ? Atoll.islandOpenRadius : Atoll.notchOpenTopRadius
+    // The menu-bar style is flush with the top edge, so its top corners stay
+    // square while the bottom keeps the notch radii.
+    readonly property real closedTopRadius: root.menuBar ? 0
+        : (island ? Atoll.islandClosedRadius : Atoll.notchClosedTopRadius)
+    readonly property real openTopRadius: root.menuBar ? 0
+        : (island ? Atoll.islandOpenRadius : Atoll.notchOpenTopRadius)
     readonly property real closedBottomRadius: island ? Atoll.islandClosedRadius : Atoll.notchClosedBottomRadius
     readonly property real openBottomRadius: island ? Atoll.islandOpenRadius : Atoll.notchOpenBottomRadius
 
