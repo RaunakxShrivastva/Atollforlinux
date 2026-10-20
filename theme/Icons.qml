@@ -243,6 +243,7 @@ QtObject {
         "house.fill": "assets/icons/house.svg",
         "tray.fill": "assets/icons/inbox.svg",
         "chart.xyaxis.line": "assets/icons/stats.svg",
+        "timer": "assets/icons/timer.svg",
         "gearshape": "assets/icons/gear.svg"
     })
 
