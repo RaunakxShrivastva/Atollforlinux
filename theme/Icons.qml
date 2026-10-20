@@ -244,7 +244,15 @@ QtObject {
         "tray.fill": "assets/icons/inbox.svg",
         "chart.xyaxis.line": "assets/icons/stats.svg",
         "timer": "assets/icons/timer.svg",
-        "gearshape": "assets/icons/gear.svg"
+        "gearshape": "assets/icons/gear.svg",
+        "gearshape.fill": "assets/icons/gear.svg",
+        "list.clipboard": "assets/icons/clipboard.svg",
+        "doc.on.clipboard": "assets/icons/clipboard.svg",
+        "eyedropper": "assets/icons/dropper.svg",
+        "cup.and.saucer": "assets/icons/coffee.svg",
+        "cup.and.saucer.fill": "assets/icons/coffee.svg",
+        "apple.terminal": "assets/icons/terminal.svg",
+        "terminal": "assets/icons/terminal.svg"
     })
 
     function glyph(name) {
