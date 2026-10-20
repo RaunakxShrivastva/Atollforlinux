@@ -1,9 +1,11 @@
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Effects
+import QtMultimedia
 import Quickshell.Io
 import "../theme"
 import "../services"
+import "lyrics.js" as Lyrics
 
 // The island itself. Geometry and shape come from Atoll's own spec (theme/Atoll.qml).
 //
@@ -116,9 +118,46 @@ Item {
     // Collapsed size. The media strip is wider than the idle pill (art +
     // title/artist + waveform), so the closed pill grows while a track is up.
     // Heights honour Appearance > "Notch size" (notch mode) / "Non-notch size".
-    readonly property real compactHeight: island
+    readonly property real compactBaseHeight: island
         ? (Settings.nonNotchHeightMode === "custom" ? Settings.nonNotchHeight : Atoll.closedHeight)
         : (Settings.notchHeightMode === "custom" ? Settings.notchHeight : Atoll.closedHeight)
+
+    // ---- Lyrics (side panel / inline line) and the camera mirror ----
+    readonly property bool cameraAvailable: mediaDevices.videoInputs.length > 0
+    // MusicManager's hasActiveSession gate, expressed with the MPRIS state.
+    readonly property bool mediaSession: mprisService.hasMedia
+    // SideLyricsLayout applies only while the calendar is not sharing the row.
+    readonly property bool sideLyricsActive: Settings.lyrics && !Settings.minimalisticUI
+        && !Settings.showCalendar && Settings.standardMediaControls
+        && (!Settings.autoHideInactiveMedia || root.mediaSession) && root.mediaSession
+    readonly property bool mirrorActive: Settings.showMirror && root.cameraAvailable && root.expanded
+
+    // sideLyricsRequiredNotchWidth(): player floor + panel + spacing + offset +
+    // optional mirror + the combined inset.
+    readonly property real sideLyricsRequiredWidth: {
+        if (!root.sideLyricsActive) return 0;
+        var panel = Math.max(0, Settings.lyricsPanelWidth);
+        var offset = Math.abs(Settings.lyricsPanelOffset);
+        var mirror = (Settings.showMirror && root.cameraAvailable)
+            ? Atoll.sideLyricsMinMirrorWidth + Atoll.sideLyricsSpacing : 0;
+        return Atoll.sideLyricsMinPlayerWidth + panel + Atoll.sideLyricsSpacing
+               + offset + mirror + Atoll.sideLyricsCombinedInset;
+    }
+
+    // ---- Pinned lyrics under the closed notch ----
+    readonly property bool pinnedEligible: Settings.lyrics && Settings.pinLyricsWhenClosed
+        && !root.expanded && !root.hudActive && root.mediaSession
+    readonly property var pinnedSlotList: root.pinnedEligible
+        ? lyricsService.pinnedSlots(Settings.pinnedLyricContext) : []
+    readonly property real pinnedReserve: Lyrics.pinnedReservedHeight(
+        root.pinnedEligible, lyricsService.availability, Settings.pinnedLyricContext,
+        Atoll.pinnedLyricsRowHeight, Atoll.pinnedLyricsGap)
+    readonly property int pinnedContext: Settings.pinnedLyricContext
+
+    // The reserved strip collapses as the notch opens, so the shape does not
+    // jump when the pin becomes ineligible.
+    readonly property real pinnedShownHeight: root.pinnedReserve * root.compactProgress
+    readonly property real compactHeight: root.compactBaseHeight + root.pinnedShownHeight
     // "Customise physical notch width" gates whether a notched display honours
     // the custom closed width; the floating pill always does.
     readonly property real compactBaseWidth: (island || Settings.customizePhysicalNotchWidth)
@@ -140,7 +179,8 @@ Item {
     readonly property real openWidth: Math.max(
         Math.max(Settings.minimalisticUI ? Atoll.islandOpenWidth : Settings.openWidth,
                  island ? 0 : tabMinWidth),
-        headerBar.implicitWidth + Atoll.headerPadding * 2)
+        headerBar.implicitWidth + Atoll.headerPadding * 2,
+        root.sideLyricsRequiredWidth)
     // Atoll uses a fixed 200 in notch mode, but our widgets are taller than
     // Atoll's bespoke views, so grow to fit rather than clip.
     readonly property real openHeight: Math.max(
@@ -220,6 +260,16 @@ Item {
 
     // ---- Services ----
     MPRISService { id: mprisService }
+    MediaDevices { id: mediaDevices }
+    LyricsService {
+        id: lyricsService
+        trackTitle: mprisService.trackTitle
+        trackArtist: mprisService.trackArtist
+        position: mprisService.position
+        duration: mprisService.length
+        isPlaying: mprisService.isPlaying
+        enabled: Settings.lyrics
+    }
     SystemMonitorService {
         id: sysService
         // Developer > Stats: poll interval.
@@ -525,6 +575,7 @@ Item {
             scale: 0.88 + 0.12 * root.compactProgress
             transformOrigin: Item.Center
             anchors.centerIn: parent
+            anchors.verticalCenterOffset: -root.pinnedShownHeight / 2
             width: Math.min(implicitWidth, parent.width - 8)
             clockTime: ""
             isMediaPlaying: mprisService.isPlaying
@@ -545,6 +596,23 @@ Item {
             timerActive: timerService.isRunning
                          && Settings.values.timerDisplayMode === "liveActivity"
             timerText: timerService.formattedTime
+        }
+
+        // 2. Pinned lyrics: the current line (and its neighbours) kept under
+        // the closed pill while "Pin lyrics when closed" is on.
+        PinnedLyrics {
+            id: pinnedLyrics
+            anchors.horizontalCenter: parent.horizontalCenter
+            anchors.bottom: parent.bottom
+            anchors.bottomMargin: Atoll.pinnedLyricsGap
+            width: parent.width
+            visible: opacity > 0.01
+            opacity: (root.pinnedEligible && lyricsService.availability === "timed")
+                ? root.compactProgress : 0
+            slots: root.pinnedSlotList
+            sweepProgress: lyricsService.sweepProgress
+            highlightStyle: Settings.lyricHighlightStyle
+            tint: Settings.tintArtByPlayer ? mprisService.brandColor : Colors.textSecondary
         }
 
         // 3. System HUD (Controls > HUD): takes the pill's place while a value
@@ -692,19 +760,86 @@ Item {
                     readonly property real gap: 12
                     // Media > "Auto-hide inactive notch media player".
                     readonly property bool mediaVisible: !Settings.autoHideInactiveMedia || mprisService.hasMedia
-                    readonly property bool calendarVisible: Settings.showCalendar
-                    readonly property real available: homeRow.width
-                        - (homeRow.mediaVisible && homeRow.calendarVisible ? homeRow.gap : 0)
+                    readonly property bool sideLyrics: root.sideLyricsActive
+                    // The side panel and the calendar never share the row.
+                    readonly property bool calendarVisible: Settings.showCalendar && !homeRow.sideLyrics
+                    readonly property bool mirror: Settings.showMirror && root.cameraAvailable && root.expanded
+
+                    // Column geometry, laid out left to right (MusicPlayerView,
+                    // optional side lyrics, optional calendar, optional mirror).
+                    readonly property var cols: homeRow.computeColumns()
+
+                    function computeColumns() {
+                        var g = homeRow.gap;
+                        var media = homeRow.mediaVisible;
+                        var cal = homeRow.calendarVisible;
+                        var side = homeRow.sideLyrics;
+                        var mir = homeRow.mirror;
+                        var out = {
+                            player: { x: 0, w: 0 },
+                            calendar: { x: 0, w: 0 },
+                            panel: { x: 0, w: 0 },
+                            mirror: { x: 0, w: 0 }
+                        };
+                        var n = (media ? 1 : 0) + (cal ? 1 : 0) + (side ? 1 : 0) + (mir ? 1 : 0);
+                        var avail = Math.max(0, homeRow.width - Math.max(0, n - 1) * g);
+
+                        if (side) {
+                            var panel = Math.max(0, Settings.lyricsPanelWidth);
+                            var off = Settings.lyricsPanelOffset;
+                            var leftover = Math.max(0, avail - panel - Math.abs(off));
+                            var pw = 0;
+                            var mw = 0;
+                            if (mir) {
+                                pw = Math.max(Atoll.sideLyricsMinPlayerWidth, Math.round(leftover / 2));
+                                mw = Math.max(0, leftover - pw);
+                            } else {
+                                pw = Math.max(Atoll.sideLyricsMinPlayerWidth, leftover);
+                            }
+                            out.player = { x: 0, w: media ? pw : 0 };
+                            var panelX = (media ? pw + g : 0) + off;
+                            out.panel = { x: panelX, w: panel };
+                            out.mirror = { x: panelX + panel + g, w: mir ? mw : 0 };
+                            return out;
+                        }
+
+                        if (mir) {
+                            var mw2 = Math.max(Atoll.sideLyricsMinMirrorWidth, Math.round(avail * 0.22));
+                            var rest = Math.max(0, avail - mw2);
+                            if (cal && media) {
+                                out.player.w = Math.round(rest * 0.58);
+                                out.calendar.w = rest - out.player.w;
+                            } else if (cal) {
+                                out.calendar.w = rest;
+                            } else {
+                                out.player.w = media ? rest : 0;
+                            }
+                            out.calendar.x = out.player.w > 0 ? out.player.w + g : 0;
+                            out.mirror.x = (out.player.w + out.calendar.w)
+                                + ((out.player.w > 0 || out.calendar.w > 0) ? g : 0);
+                            out.mirror.w = mw2;
+                            return out;
+                        }
+
+                        if (cal && media) {
+                            out.player.w = Math.round(avail * 0.58);
+                            out.calendar.w = avail - out.player.w;
+                            out.calendar.x = out.player.w + g;
+                        } else if (cal) {
+                            out.calendar.w = avail;
+                        } else if (media) {
+                            out.player.w = avail;
+                        }
+                        return out;
+                    }
 
                     Item {
                         id: homeMediaHost
-                        anchors.left: parent.left
                         anchors.top: parent.top
                         anchors.bottom: parent.bottom
-                        visible: homeRow.mediaVisible
-                        width: homeRow.calendarVisible
-                             ? Math.round(homeRow.available * 0.58)
-                             : homeRow.width
+                        x: homeRow.cols.player.x
+                        width: homeRow.cols.player.w
+                        visible: homeRow.mediaVisible && width > 0
 
                         MediaWidget {
                             trackTitle: mprisService.trackTitle
@@ -730,6 +865,9 @@ Item {
                             showStandardControls: Settings.standardMediaControls
                             skipBehavior: Settings.musicSkipBehavior
                             waveformScrubber: Settings.waveformScrubber
+                            showInlineLyric: Settings.lyrics && homeRow.calendarVisible
+                            inlineLyric: lyricsService.currentLine
+                            inlineInstrumental: lyricsService.isInstrumentalBreak
                             sliderColor: Settings.sliderColor === "player" ? mprisService.brandColor
                                        : Settings.sliderColor === "accent" ? Settings.accent
                                        : "#ffffff"
@@ -748,16 +886,55 @@ Item {
 
                     Item {
                         id: homeCalendarHost
-                        anchors.right: parent.right
                         anchors.top: parent.top
                         anchors.bottom: parent.bottom
-                        visible: homeRow.calendarVisible
-                        width: homeRow.mediaVisible
-                             ? homeRow.width - homeMediaHost.width - homeRow.gap
-                             : homeRow.width
+                        x: homeRow.cols.calendar.x
+                        width: homeRow.cols.calendar.w
+                        visible: homeRow.calendarVisible && width > 0
 
                         CalendarWidget {
                             events: calendar.upcoming
+                        }
+                    }
+
+                    Item {
+                        id: homeLyricsHost
+                        anchors.top: parent.top
+                        anchors.bottom: parent.bottom
+                        x: homeRow.cols.panel.x
+                        width: homeRow.cols.panel.w
+                        visible: homeRow.sideLyrics && width > 0
+
+                        LyricsPanel {
+                            anchors.fill: parent
+                            lines: lyricsService.lines
+                            duration: lyricsService.duration
+                            availability: lyricsService.availability
+                            currentIndex: lyricsService.currentIndex
+                            sweepProgress: lyricsService.sweepProgress
+                            placeholder: lyricsService.placeholder
+                            highlightStyle: Settings.lyricHighlightStyle
+                            tint: Settings.tintArtByPlayer ? mprisService.brandColor : Colors.textSecondary
+                            pinned: Settings.pinLyricsWhenClosed
+                            onPinToggled: Settings.toggle("pinLyricsWhenClosed")
+                        }
+                    }
+
+                    Item {
+                        id: homeMirrorHost
+                        anchors.top: parent.top
+                        anchors.bottom: parent.bottom
+                        x: homeRow.cols.mirror.x
+                        width: homeRow.cols.mirror.w
+                        visible: homeRow.mirror && width > 0
+
+                        CameraMirror {
+                            anchors.fill: parent
+                            device: mediaDevices.videoInputs.length > 0
+                                ? mediaDevices.videoInputs[0] : null
+                            shape: Settings.values.mirrorShape
+                            active: homeRow.mirror
+                            cornerRadiusScaling: Settings.cornerRadiusScaling
                         }
                     }
                 }

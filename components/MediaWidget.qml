@@ -45,8 +45,14 @@ Item {
     property var slots: []                  // musicControlSlots (5 MusicControlButton names)
     property int controlSlots: 3            // legacy slot count (kept for callers)
     property bool reduceMotion: false       // Reduce motion: no parallax travel
-    property bool waveformScrubber: true    // enableWaveformScrubber
+    property bool waveformScrubber: true     // enableWaveformScrubber
     property string skipBehavior: "track"   // musicSkipBehavior
+
+    // Lyrics > "Show lyrics" with the calendar visible: the current line sits
+    // under the artist in the controls column (MusicControlsView.songInfo).
+    property bool showInlineLyric: false
+    property string inlineLyric: ""
+    property bool inlineInstrumental: false
 
     signal playPauseClicked()
     signal nextClicked()
@@ -274,6 +280,38 @@ Item {
                 font.pixelSize: Typography.s16
                 font.weight: Typography.medium
                 elide: Text.ElideRight
+            }
+
+            // Current lyric line (only while lyrics are on and the calendar
+            // shares the row, where the side panel has no room).
+            Row {
+                Layout.fillWidth: true
+                Layout.topMargin: 2
+                spacing: 4
+                visible: root.showInlineLyric
+                         && (root.inlineInstrumental || root.inlineLyric !== "")
+                opacity: 0.7
+
+                Repeater {
+                    model: root.inlineInstrumental ? 3 : 0
+                    SvgIcon {
+                        iconName: "music.note"
+                        color: Colors.white
+                        implicitWidth: 10
+                        implicitHeight: 10
+                    }
+                }
+                Text {
+                    visible: !root.inlineInstrumental
+                    text: root.inlineLyric
+                    color: Colors.white
+                    font.family: Typography.family
+                    font.pixelSize: Typography.s12
+                    elide: Text.ElideRight
+                    width: Math.min(implicitWidth,
+                        Math.max(40, root.width - Atoll.albumOpen - Atoll.mediaRowSpacing
+                                    - Atoll.mediaInfoLeading - 8))
+                }
             }
 
             Item { Layout.preferredHeight: 6 }

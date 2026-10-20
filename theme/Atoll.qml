@@ -108,6 +108,41 @@ QtObject {
     readonly property real mediaTransportSpacing: 8
     // AlbumArtView.appIconOverlay: 36x36 at .bottomTrailing .offset(x: 10, y: 10).
     readonly property real mediaBadge: 36
+
+    // ---- Side lyrics panel (NotchHomeView.sideLyricsContent) ----
+    // An HStack(alignment: .top, spacing: 20) of player / LyricsSidePanelView /
+    // optional camera preview. The player keeps a 380pt floor and the panel
+    // takes Defaults[.lyricsPanelWidth] (280 by default).
+    readonly property real sideLyricsMinPlayerWidth: 380
+    readonly property real sideLyricsMinMirrorWidth: 220
+    readonly property real sideLyricsSpacing: 20
+    readonly property real sideLyricsCombinedInset: 40
+    // LyricsSidePanelView background: Color.black.opacity(0.3), radius 4.
+    readonly property real lyricsPanelRadius: 4
+    readonly property real lyricsPanelHeaderTop: 10
+    readonly property real lyricsPanelHeaderBottom: 6
+    readonly property real lyricsPanelHeaderSide: 12
+    // SyncedLyricsStyle defaults for the notch list.
+    readonly property real lyricsListFontSize: 14
+    readonly property real lyricsListCurrentFontSize: 14
+    readonly property real lyricsListLineSpacing: 8
+    readonly property real lyricsListInstrumentalFontSize: 12
+    readonly property int lyricsListLineLimit: 2
+    readonly property real lyricsListPaddingH: 12
+    readonly property real lyricsListPaddingV: 4
+
+    // ---- PinnedLyricsView (closed notch) ----
+    readonly property real pinnedLyricsFontSize: 10
+    readonly property real pinnedLyricsGap: 4
+    // (ascender - descender + leading) rounded up + 1 for a 10pt medium face.
+    readonly property real pinnedLyricsRowHeight: 15
+    readonly property real pinnedLyricsPaddingH: 10
+
+    // ---- MusicManager lyric timing ----
+    // A quarter-second lead so the highlight lands with the voice.
+    readonly property real lyricLeadTime: 0.25
+    // Gaps shorter than this are breaths between lines, not instrumental breaks.
+    readonly property real instrumentalBreakThreshold: 5
     readonly property real mediaBadgeOffset: 10
     // albumArtBackground glow: scaleEffect(x: 1.3, y: 1.4), opacity .5 playing.
     readonly property real mediaGlowScaleX: 1.3

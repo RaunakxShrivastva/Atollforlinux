@@ -51,15 +51,6 @@ QtObject {
             "Governs the macOS lock-screen weather widget, which cannot be replaced here.",
         "lockScreenWeatherTemperatureUnit":
             "Governs the macOS lock-screen weather widget, which cannot be replaced here.",
-        // Needs an event source that is not wired yet.
-        "enableLyrics":
-            "Lyrics are fetched from a macOS service; no keyless provider is configured here.",
-        "pinLyricsWhenClosed":
-            "Requires lyrics, which are not available here.",
-        "showMirror":
-            "The notch mirror is a live camera preview; no camera-to-shell video pipeline is available here.",
-        "mirrorShape":
-            "Requires the notch mirror, which is not available here.",
         // Partial: works only in some sessions.
         "automaticallySwitchDisplay":
             "Follows the pointer across outputs; needs a compositor IPC this session does not expose."

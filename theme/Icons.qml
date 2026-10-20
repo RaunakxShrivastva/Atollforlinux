@@ -101,6 +101,7 @@ QtObject {
         "rectangle.grid.2x2": "grid_view",
         "clipboard": "content_paste",
         "push_pin": "push_pin",
+        "pin": "push_pin",
         "pin.fill": "push_pin",
         "pin.slash.fill": "push_pin",
         "link": "link",

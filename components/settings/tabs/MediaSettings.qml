@@ -74,12 +74,64 @@ ColumnLayout {
             }
         }
         FormRow {
-                    settingKey: "pinLyricsWhenClosed"
+            settingKey: "pinLyricsWhenClosed"
             label: "Pin lyrics when closed"
-            divider: false
             FormToggle {
                 checked: Settings.values.pinLyricsWhenClosed
                 onToggled: (v) => Settings.set("pinLyricsWhenClosed", v)
+            }
+        }
+        FormRow {
+            label: "Highlight"
+            description: "How the line being sung is drawn."
+            settingKey: "lyricHighlightStyle"
+            FormPicker {
+                options: [
+                    { value: "sweep", label: "Sweep" },
+                    { value: "gradient", label: "Gradient" },
+                    { value: "solid", label: "Solid" }
+                ]
+                value: Settings.values.lyricHighlightStyle
+                onSelected: (v) => Settings.set("lyricHighlightStyle", v)
+            }
+        }
+        FormRow {
+            label: "Pinned lines"
+            description: "Lines kept under the closed notch while pinned."
+            settingKey: "pinnedLyricContext"
+            FormPicker {
+                options: [
+                    { value: 1, label: "Current line" },
+                    { value: 3, label: "Three lines" },
+                    { value: 5, label: "Five lines" }
+                ]
+                value: Settings.values.pinnedLyricContext
+                onSelected: (v) => Settings.set("pinnedLyricContext", v)
+            }
+        }
+        FormRow {
+            label: "Panel width"
+            settingKey: "lyricsPanelWidth"
+            FormSlider {
+                from: 180
+                to: 420
+                step: 10
+                value: Settings.values.lyricsPanelWidth
+                valueText: Math.round(value) + " px"
+                onMoved: (v) => Settings.set("lyricsPanelWidth", v)
+            }
+        }
+        FormRow {
+            label: "Panel offset"
+            divider: false
+            settingKey: "lyricsPanelOffset"
+            FormSlider {
+                from: -100
+                to: 100
+                step: 1
+                value: Settings.values.lyricsPanelOffset
+                valueText: (value >= 0 ? "+" : "") + Math.round(value) + " px"
+                onMoved: (v) => Settings.set("lyricsPanelOffset", v)
             }
         }
     }

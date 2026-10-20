@@ -155,7 +155,10 @@ ColumnLayout {
                     cacheBuffer: 400
                     spacing: 0
 
-                    readonly property real cellWidth: width / root.cellVisible
+                    // Never cram seven cells into a narrow column (the mirror
+                    // can leave the calendar ~200pt): below 30pt the weekday
+                    // and day labels overlap, so let the strip scroll instead.
+                    readonly property real cellWidth: Math.max(30, width / root.cellVisible)
 
                     // The reference opens on the week that holds today (Mon..Sun),
                     // not on a strip centred under it. Park the view on that

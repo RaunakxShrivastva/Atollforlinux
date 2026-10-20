@@ -87,6 +87,12 @@ QtObject {
             // ---- Media ----
             enableLyrics: false,
             pinLyricsWhenClosed: false,
+            // Lyrics > "Highlight" (Atoll LyricHighlightStyle): sweep / gradient / solid.
+            lyricHighlightStyle: "sweep",
+            // Lyrics > "Keeps the current line under the closed notch": 1 / 3 / 5.
+            pinnedLyricContext: 1,
+            lyricsPanelWidth: 280,
+            lyricsPanelOffset: 0,
             musicSource: "auto",
             musicSkipBehavior: "track",
             showStandardMediaControls: true,
@@ -305,6 +311,11 @@ QtObject {
     readonly property bool settingsIcon: values.settingsIconInNotch === true
     readonly property bool showMirror: values.showMirror === true
     readonly property bool lyrics: values.enableLyrics === true
+    readonly property bool pinLyricsWhenClosed: values.pinLyricsWhenClosed === true
+    readonly property string lyricHighlightStyle: root.str("lyricHighlightStyle", "sweep")
+    readonly property int pinnedLyricContext: Math.max(1, Math.round(root.num("pinnedLyricContext", 1)))
+    readonly property real lyricsPanelWidth: root.num("lyricsPanelWidth", 280)
+    readonly property real lyricsPanelOffset: root.num("lyricsPanelOffset", 0)
     readonly property bool shelf: values.enableShelf === true
     readonly property string accent: root.coerceColor(values.accentColor)
     readonly property var slots: values.musicControlSlots || []
