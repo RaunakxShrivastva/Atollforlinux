@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Effects
 import "../theme"
 
 // Vector icon rendered from Material Symbols Rounded — the closest Linux
@@ -38,9 +39,31 @@ Item {
     readonly property int fontPixel: root.fontPixelOverride > 0 ? root.fontPixelOverride
                                                                   : Math.max(1, Math.round(root.size * inkScale))
 
+    // A custom white-on-transparent asset (Icons.assetMap) instead of a font
+    // glyph. MultiEffect colorization is what tints it; that only works because
+    // the asset is white (a black SVG stays black).
+    readonly property string assetPath: Icons.asset(root.iconName)
+
+    Image {
+        anchors.centerIn: parent
+        width: root.size
+        height: root.size
+        visible: root.assetPath !== ""
+        source: root.assetPath !== "" ? Qt.resolvedUrl("../" + root.assetPath) : ""
+        sourceSize.width: 256
+        sourceSize.height: 256
+        fillMode: Image.PreserveAspectFit
+        smooth: true
+        layer.enabled: root.assetPath !== ""
+        layer.effect: MultiEffect {
+            colorizationColor: root.color
+            colorization: 1.0
+        }
+    }
+
     Text {
         anchors.centerIn: parent
-        visible: root.glyph !== ""
+        visible: root.glyph !== "" && root.assetPath === ""
         text: root.glyph
         color: root.color
         textFormat: Text.PlainText

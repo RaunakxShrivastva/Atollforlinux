@@ -235,9 +235,23 @@ QtObject {
         "spotify": "library_music"
     })
 
+    // Custom vector assets that replace the Material glyph for an SF name.
+    // Paths are relative to the repository root. Assets must be monochrome
+    // white-on-transparent; SvgIcon tints them with the requested colour (a
+    // black SVG cannot be re-coloured by MultiEffect's colorization).
+    readonly property var assetMap: ({
+        "house.fill": "assets/icons/house.svg"
+    })
+
     function glyph(name) {
         var lig = map[name];
         return lig === undefined ? "" : lig;
+    }
+
+    // Repo-relative asset path for an SF name, or "" when it uses the font.
+    function asset(name) {
+        var a = assetMap[name];
+        return a === undefined ? "" : a;
     }
 
     // Where the Material Symbols variable font should use FILL=1 to match the
