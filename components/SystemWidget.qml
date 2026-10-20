@@ -92,6 +92,19 @@ ColumnLayout {
         }
     }
 
+    Text {
+        visible: root.cards.length === 0
+        Layout.fillWidth: true
+        Layout.fillHeight: true
+        Layout.alignment: Qt.AlignHCenter | Qt.AlignVCenter
+        text: "No stats cards enabled\nSettings > Stats"
+        color: Colors.textTertiary
+        font.family: Typography.family
+        font.pixelSize: Typography.s11
+        horizontalAlignment: Text.AlignHCenter
+        verticalAlignment: Text.AlignVCenter
+    }
+
     // ---- Single-line sparkline with gradient fill (Atoll MiniGraph) ----
     // Canvas-based: PathPolyline bindings do not refresh from `property var`
     // arrays reliably, so both graphs rasterise via Canvas.onPaint instead.

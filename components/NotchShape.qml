@@ -1,12 +1,15 @@
 import QtQuick
-import QtQuick.Shapes
 import "../theme"
 
 // Direct port of Atoll's `NotchShape` (DynamicIsland/components/Notch/NotchShape.swift).
 // Four quad-curves join the top edge to the side walls (inset by topRadius) and
 // the side walls to the bottom edge. Defaults 6 / 14 match NotchShape.swift;
 // opened state uses top 19 / bottom 24 (cornerRadiusInsets.opened).
-Shape {
+//
+// Drawn with a per-corner Rectangle (Qt 6.7+) rather than QtQuick.Shapes: the
+// CurveRenderer used to leave the silhouette blank on some drivers, which made
+// the whole island look transparent while its icons stayed visible.
+Rectangle {
     id: root
 
     property real topRadius: Atoll.notchClosedTopRadius
@@ -21,44 +24,19 @@ Shape {
     property color strokeColor: "transparent"
     property real strokeWidth: 0
 
+    color: root.gradientFill ? "transparent" : root.fillColor
+    topLeftRadius: root.topRadius
+    topRightRadius: root.topRadius
+    bottomLeftRadius: root.bottomRadius
+    bottomRightRadius: root.bottomRadius
+    border.color: root.strokeColor
+    border.width: root.strokeWidth
     antialiasing: true
-    preferredRendererType: Shape.CurveRenderer
-    asynchronous: false
+    gradient: root.gradientFill ? grad : null
 
-    LinearGradient {
+    Gradient {
         id: grad
-        x1: 0; y1: 0
-        x2: 0; y2: root.height
         GradientStop { position: 0.0; color: root.topColor }
         GradientStop { position: 1.0; color: root.bottomColor }
-    }
-
-    ShapePath {
-        strokeColor: root.strokeColor
-        strokeWidth: root.strokeWidth
-        joinStyle: ShapePath.RoundJoin
-        capStyle: ShapePath.RoundCap
-        fillColor: root.gradientFill ? "transparent" : root.fillColor
-        fillGradient: root.gradientFill ? grad : null
-
-        startX: 0
-        startY: 0
-
-        // top-left
-        PathQuad { controlX: root.topRadius; controlY: 0; x: root.topRadius; y: root.topRadius }
-        // left wall
-        PathLine { x: root.topRadius; y: root.height - root.bottomRadius }
-        // bottom-left
-        PathQuad { controlX: root.topRadius; controlY: root.height; x: root.topRadius + root.bottomRadius; y: root.height }
-        // bottom edge
-        PathLine { x: root.width - root.topRadius - root.bottomRadius; y: root.height }
-        // bottom-right
-        PathQuad { controlX: root.width - root.topRadius; controlY: root.height; x: root.width - root.topRadius; y: root.height - root.bottomRadius }
-        // right wall
-        PathLine { x: root.width - root.topRadius; y: root.topRadius }
-        // top-right
-        PathQuad { controlX: root.width - root.topRadius; controlY: 0; x: root.width; y: 0 }
-        // top edge
-        PathLine { x: 0; y: 0 }
     }
 }
