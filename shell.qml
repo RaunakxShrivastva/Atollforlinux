@@ -16,10 +16,15 @@ ShellRoot {
         id: settingsWindow
     }
 
-    // Colour-picker panel (Utilities > Color Picker, "Panel" display mode):
-    // opened by the notch's eyedropper button.
+    // Colour-picker panel (Utilities > Color Picker, history panel).
     ColorPickerWindow {
         id: colorPickerWindow
+    }
+
+    // Full-screen pick: the eyedropper freezes the screen, shows the colour
+    // under the pointer and copies it on click.
+    ColorPickOverlay {
+        id: colorPickOverlay
     }
 
     // Clipboard panel (Utilities > Clipboard, "Panel" display mode): opened by

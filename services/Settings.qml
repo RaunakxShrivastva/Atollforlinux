@@ -163,12 +163,13 @@ QtObject {
             // ---- Utilities ----
             enableClipboardManager: true,
             showClipboardIcon: true,
-            // Atoll's default display mode is the floating panel.
-            clipboardDisplayMode: "panel",
+            // Keep the clipboard inside the island (a dedicated tab); upstream's
+            // default is a separate floating panel window.
+            clipboardDisplayMode: "notchTab",
             clipboardHistorySize: 3,
             persistClipboardHistory: true,
             enableColorPickerFeature: true,
-            colorPickerDisplayMode: "panel",
+            colorPickerDisplayMode: "popover",
             colorPickerFormat: "hex",
             colorHistorySize: 10,
             showColorFormats: true,
@@ -284,7 +285,7 @@ QtObject {
     // The legacy "tab" value falls back to the dedicated tab so an older
     // settings.json keeps working.
     readonly property string clipboardMode: {
-        var raw = root.str("clipboardDisplayMode", "panel");
+        var raw = root.str("clipboardDisplayMode", "notchTab");
         if (raw === "popover" || raw === "panel" || raw === "notchTab") return raw;
         if (raw === "tab") return "notchTab";
         return "separateTab";

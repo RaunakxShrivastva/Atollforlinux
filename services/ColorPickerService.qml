@@ -37,49 +37,93 @@ QtObject {
     signal changed()
 
     // ---------------- picking ----------------
+    //
+    // SkyLight-style screen pick: grab one full-screen frame, then let
+    // component/ColorPickOverlay.qml sample it under the pointer (hyprpicker
+    // needs zwlr_screencopy_v1, which KWin does not offer).
+
+    property bool capturing: false
+    property bool overlayVisible: false
+    property string shotUrl: ""
+    property string hoverHex: "#ffffff"
+    property string hoverRgb: "rgb(255, 255, 255)"
+
+    property int _sampleX: 0
+    property int _sampleY: 0
 
     function pick() {
-        if (picking) return;
-        picking = true;
-        root._got = false;
-        pickProc.running = true;
+        if (root.capturing || root.overlayVisible) return;
+        root.capturing = true;
+        root.overlayVisible = false;
+        // Let the island collapse first, so the frame is the desktop and not
+        // the notch.
+        root.captureDelay.restart();
     }
 
-    property Process pickProc: Process {
-        // Always ask hyprpicker for hex: the history stays canonical and the
-        // copy honours colorPickerFormat ourselves.
-        command: ["sh", "-c", "hyprpicker -f hex 2>/dev/null || hyprpicker 2>/dev/null"]
-        stdout: SplitParser {
-            onRead: line => root.accept(line)
-        }
-        onExited: {
-            if (root._got) {
-                root.picking = false;
-                return;
-            }
-            // No hyprpicker (or no wlroots screen-copy protocol): fall back to a
-            // Spectacle region grab and sample its centre pixel.
-            fallback.running = true;
-        }
+    property Timer captureDelay: Timer {
+        interval: 380
+        onTriggered: root.capture.running = true
     }
 
-    property Process fallback: Process {
+    property Process capture: Process {
         command: ["sh", "-c",
-            "mkdir -p '" + dir + "' && rm -f '" + tmpShot + "' && "
-            + "spectacle -b -n -r -o '" + tmpShot + "' >/dev/null 2>&1 && "
-            + "magick '" + tmpShot + "' -gravity center -crop 1x1+0+0 "
-            + "-format '#%[hex:p{0,0}]' info: 2>/dev/null"]
-        stdout: SplitParser {
-            onRead: line => root.accept(line)
-        }
-        onExited: {
-            root.picking = false;
-            if (!root._got)
-                root.failed("Could not read a pixel - install hyprpicker (Hyprland) or check the Spectacle grab.");
+            "mkdir -p '" + root.dir + "' && rm -f '" + root.tmpShot + "' && "
+            + "spectacle -b -n -f -o '" + root.tmpShot + "' >/dev/null 2>&1 && "
+            + "test -s '" + root.tmpShot + "'"]
+        onExited: code => {
+            root.capturing = false;
+            if (code === 0) {
+                root.shotUrl = "file://" + root.tmpShot + "?t=" + Date.now();
+                root.hoverHex = "#ffffff";
+                root.hoverRgb = "rgb(255, 255, 255)";
+                root.overlayVisible = true;
+            } else {
+                root.failed("Could not capture the screen for the colour picker.");
+            }
         }
     }
 
-    // A line of picker output -> canonical colour -> history -> clipboard.
+    function sampleAt(x, y) {
+        root._sampleX = x;
+        root._sampleY = y;
+        root.sampleTimer.restart();
+    }
+
+    property Timer sampleTimer: Timer {
+        interval: 45
+        onTriggered: {
+            if (!root.overlayVisible) return;
+            root.sampleProc.running = true;
+            root.sampleProc.command = ["sh", "-c",
+                "magick '" + root.tmpShot + "' -crop 1x1+" + root._sampleX + "+" + root._sampleY
+                + " -depth 8 -format '%[hex:p{0,0}]' info: 2>/dev/null"]
+        }
+    }
+
+    property Process sampleProc: Process {
+        stdout: SplitParser {
+            onRead: line => root.acceptSample(line)
+        }
+    }
+
+    function acceptSample(line) {
+        var c = root.parseHex(line);
+        if (c === null) return;
+        root.hoverHex = root.toHex(c);
+        root.hoverRgb = root.toRgb(c);
+    }
+
+    function commitPick() {
+        var c = root.parseHex(root.hoverHex);
+        root.overlayVisible = false;
+        if (c !== null) root.addColor(c);
+    }
+
+    function cancelPick() {
+        root.overlayVisible = false;
+    }
+
+    // A picked colour -> history -> clipboard.
     function accept(line) {
         var c = root.parseHex(line);
         if (c === null) return;

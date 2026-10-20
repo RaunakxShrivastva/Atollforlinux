@@ -727,14 +727,11 @@ Item {
                         }
                     } else if (action === "colorpicker") {
                         if (Settings.values.enableColorPickerFeature === false) return;
-                        // Atoll: DynamicIslandHeader switches on colorPickerDisplayMode
-                        // - .panel shows the floating panel, .popover the attached one.
-                        if (Settings.values.colorPickerDisplayMode === "popover") {
-                            root.colorPopoverOpen = !root.colorPopoverOpen;
-                        } else {
-                            root.colorPickerPanelRequested();
-                            root.mode = "COMPACT";
-                        }
+                        // Pick straight off the screen like hyprpicker: collapse
+                        // the island, freeze the desktop, click to copy.
+                        root.colorPopoverOpen = false;
+                        root.mode = "COMPACT";
+                        ColorPickerService.pick();
                     } else if (action === "settings") {
                         root.settingsRequested();
                     }

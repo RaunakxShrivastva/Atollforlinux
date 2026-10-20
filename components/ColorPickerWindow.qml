@@ -52,6 +52,8 @@ PanelWindow {
         function open(): void { win.open(); }
         function close(): void { win.close(); }
         function pick(): void { ColorPickerService.pick(); }
+        function cancel(): void { ColorPickerService.cancelPick(); }
+        function commit(): void { ColorPickerService.commitPick(); }
         function clear(): void { ColorPickerService.clearHistory(); }
     }
 }
