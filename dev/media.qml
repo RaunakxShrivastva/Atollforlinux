@@ -36,6 +36,7 @@ Window {
             shuffleActive: true
             loopActive: true
             sliderColor: "#efe7d7"
+            slots: ["shuffle", "trackBackward", "playPause", "trackForward", "repeatMode"]
         }
     }
 

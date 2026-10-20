@@ -253,7 +253,14 @@ QtObject {
         "cup.and.saucer.fill": "assets/icons/coffee.svg",
         "apple.terminal": "assets/icons/terminal.svg",
         "terminal": "assets/icons/terminal.svg",
-        "note.text": "assets/icons/notes.svg"
+        "note.text": "assets/icons/notes.svg",
+        "play.fill": "assets/icons/play.svg",
+        "pause.fill": "assets/icons/pause.svg",
+        "forward.fill": "assets/icons/track-next.svg",
+        "backward.fill": "assets/icons/track-previous.svg",
+        "shuffle": "assets/icons/shuffle.svg",
+        "repeat": "assets/icons/repeat.svg",
+        "repeat.1": "assets/icons/repeat-one.svg"
     })
 
     function glyph(name) {
