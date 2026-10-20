@@ -240,7 +240,10 @@ QtObject {
     // white-on-transparent; SvgIcon tints them with the requested colour (a
     // black SVG cannot be re-coloured by MultiEffect's colorization).
     readonly property var assetMap: ({
-        "house.fill": "assets/icons/house.svg"
+        "house.fill": "assets/icons/house.svg",
+        "tray.fill": "assets/icons/inbox.svg",
+        "chart.xyaxis.line": "assets/icons/stats.svg",
+        "gearshape": "assets/icons/gear.svg"
     })
 
     function glyph(name) {
