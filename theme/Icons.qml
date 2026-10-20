@@ -252,7 +252,8 @@ QtObject {
         "cup.and.saucer": "assets/icons/coffee.svg",
         "cup.and.saucer.fill": "assets/icons/coffee.svg",
         "apple.terminal": "assets/icons/terminal.svg",
-        "terminal": "assets/icons/terminal.svg"
+        "terminal": "assets/icons/terminal.svg",
+        "note.text": "assets/icons/notes.svg"
     })
 
     function glyph(name) {
