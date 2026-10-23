@@ -148,6 +148,9 @@ QtObject {
     readonly property real mediaGlowScaleX: 1.3
     readonly property real mediaGlowScaleY: 1.4
     readonly property real mediaGlowOpacity: 0.5
+    // Room around the glow for the blur to fade out; without it the blur
+    // clips at the effect's own bounds and leaves hard rectangular corners.
+    readonly property real mediaGlowBleed: 96
 
     // ---- Stats (NotchStatsView) ----
     readonly property real statsCardRadius: 8

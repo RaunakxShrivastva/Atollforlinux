@@ -2,14 +2,16 @@ import QtQuick
 import QtQuick.Layouts
 import QtQuick.Effects
 import "../theme"
+import "../services"
 
 // Home tab media player, ported from NotchHomeView.swift
 // (MusicPlayerView + AlbumArtView + MusicControlsView).
 //
 //   HStack(alignment: .top, spacing: 12) { AlbumArtView; MusicControlsView }
 //
-// Album art is 90x90 with a soft colour glow behind it while playing, an app
-// badge on its bottom-trailing corner, and a dim overlay when paused. The
+// Album art fills the row height (a rounded square) with a soft colour glow
+// behind it while playing, an app badge on its bottom-trailing corner, and a
+// dim overlay when paused. The
 // controls column stacks title, artist, the timeline (elapsed left, duration
 // right) and the transport row (shuffle, prev, play, next, repeat).
 Item {
@@ -47,6 +49,7 @@ Item {
     property bool reduceMotion: false       // Reduce motion: no parallax travel
     property bool waveformScrubber: true     // enableWaveformScrubber
     property string skipBehavior: "track"   // musicSkipBehavior
+    property bool showVisualizer: true      // useMusicVisualizer
 
     // Lyrics > "Show lyrics" with the calendar visible: the current line sits
     // under the artist in the controls column (MusicControlsView.songInfo).
@@ -77,6 +80,53 @@ Item {
 
     onFormattedArtUrlChanged: {
         if (formattedArtUrl && formattedArtUrl !== "") cachedArtUrl = formattedArtUrl;
+    }
+
+    // The cover swaps with a flip: `liveArtSource` follows the track at once,
+    // while `shownArtSource` only catches up at the flip's midpoint so the
+    // old cover is what collapses away.
+    readonly property string liveArtSource: root.formattedArtUrl !== "" ? root.formattedArtUrl : root.cachedArtUrl
+    // Set imperatively (not bound) so a track change sees the two differ and
+    // plays the flip instead of silently jumping.
+    property string shownArtSource: ""
+
+
+    onLiveArtSourceChanged: {
+        if (shownArtSource === liveArtSource) return;
+        if (root.reduceMotion) { shownArtSource = liveArtSource; return; }
+        artFlip.restart();
+    }
+
+    // A real card flip, not a horizontal squash: the face turns away on Y
+    // (88deg keeps a sliver of width so it never degenerates), the source
+    // swaps at edge-on, and the black overlay below darkens with the angle —
+    // the shading is what reads as 3D. The glow dims with |cos(angle)| so it
+    // disappears while the card is edge-on.
+    SequentialAnimation {
+        id: artFlip
+        NumberAnimation {
+            target: artFlipRot; property: "angle"
+            to: 88; duration: 180; easing.type: Easing.InCubic
+        }
+        ScriptAction { script: root.shownArtSource = root.liveArtSource }
+        NumberAnimation {
+            target: artFlipRot; property: "angle"
+            from: -88; to: 0; duration: 240; easing.type: Easing.OutCubic
+        }
+    }
+
+    // ---- Waveform visualizer (expanded player) ----
+    // Real spectrum from the shared AudioBars cava feed (40 bands off the
+    // PipeWire playback monitor). The widget claims the feed only while it
+    // is visible, the visualizer is enabled and something is actually
+    // playing; paused or hidden, the analyser stops and the bars settle flat.
+    readonly property bool vizWanted: root.showVisualizer && root.hasMedia
+                                       && root.isPlaying && root.visible
+    onVizWantedChanged: AudioBars.setActive(root, vizWanted)
+
+    Component.onCompleted: {
+        shownArtSource = liveArtSource;
+        AudioBars.setActive(root, vizWanted);
     }
 
     // Atoll's trailing label is the track duration (TrailingLabel.duration), not
@@ -111,15 +161,31 @@ Item {
         spacing: Atoll.mediaRowSpacing
 
         // ---- Album artwork ----
+        // AlbumArtView has no fixed frame in SwiftUI: the square cover fills the
+        // row height (about 120pt beside the calendar), which is what makes the
+        // reference artwork read much larger than a 90pt thumbnail.
         Item {
             id: art
 
+            readonly property real artSize: Math.max(1, root.height)
+
             Layout.alignment: Qt.AlignTop
-            Layout.preferredWidth: Atoll.albumOpen
-            Layout.preferredHeight: Atoll.albumOpen
+            Layout.preferredWidth: art.artSize
+            Layout.preferredHeight: art.artSize
 
             // albumArtBackground: the cover blurred behind itself, scaled 1.3x1.4
             // and faded in while playing.
+            // Pulls the incoming cover into Qt's image cache while the old
+            // one is still collapsing, so the flip lands on a ready image.
+            Image {
+                id: artPreload
+                source: root.liveArtSource
+                fillMode: Image.PreserveAspectCrop
+                asynchronous: true
+                cache: true
+                visible: false
+            }
+
             Image {
                 id: glowSource
                 anchors.centerIn: parent
@@ -133,69 +199,128 @@ Item {
 
             MultiEffect {
                 source: glowSource
-                anchors.fill: glowSource
+                anchors.centerIn: glowSource
+                width: glowSource.width + Atoll.mediaGlowBleed
+                height: glowSource.height + Atoll.mediaGlowBleed
                 blurEnabled: true
                 blur: 0.9
                 blurMax: 48
-                opacity: (root.isPlaying && root.hasMedia && root.lighting) ? Atoll.mediaGlowOpacity : 0.0
+                opacity: ((root.isPlaying && root.hasMedia && root.lighting) ? Atoll.mediaGlowOpacity : 0.0)
+                         * Math.abs(Math.cos(artFlipRot.angle * Math.PI / 180))
                 visible: opacity > 0.01
                 Behavior on opacity { NumberAnimation { duration: 320; easing.type: Easing.InOutQuad } }
             }
 
             HoverHandler { id: artHover }
 
-            Rectangle {
+            // AlbumArtView clips the cover to a rounded square. Rectangle's
+            // `clip` only ever cuts a straight rectangle, so the cover is drawn
+            // into a MultiEffect and masked by a rounded shape instead.
+            Item {
                 id: artClip
                 anchors.fill: parent
-                radius: Atoll.albumOpenRadius
                 // parallaxEffectIntensity: the cover drifts with the pointer.
-                transform: Translate {
-                    x: artHover.hovered && root.parallax > 0
-                       ? (artHover.point.position.x / Math.max(1, art.width) - 0.5) * root.parallax * 2 : 0
-                    y: artHover.hovered && root.parallax > 0
-                       ? (artHover.point.position.y / Math.max(1, art.height) - 0.5) * root.parallax * 2 : 0
-                    Behavior on x { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
-                    Behavior on y { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
-                }
-                color: Colors.panelElevated
-                border.color: Colors.hairline
-                border.width: 1
-                clip: true
+                transform: [
+                    Translate {
+                        x: artHover.hovered && root.parallax > 0
+                           ? (artHover.point.position.x / Math.max(1, art.width) - 0.5) * root.parallax * 2 : 0
+                        y: artHover.hovered && root.parallax > 0
+                           ? (artHover.point.position.y / Math.max(1, art.height) - 0.5) * root.parallax * 2 : 0
+                        Behavior on x { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
+                        Behavior on y { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
+                    },
+                    Rotation {
+                        id: artFlipRot
+                        origin.x: artClip.width / 2
+                        origin.y: artClip.height / 2
+                        axis { x: 0; y: 1; z: 0 }
+                    }
+                ]
                 scale: root.isPlaying ? 1.0 : 0.85
                 Behavior on scale { NumberAnimation { duration: 260; easing.type: Easing.OutCubic } }
 
-                Image {
-                    id: artImage
+                // MultiEffect only picks up texture-backed sources: without
+                // layer.enabled the hidden items never render, leaving just the
+                // blurred glow behind the (empty) frame.
+                Rectangle {
+                    id: artMask
                     anchors.fill: parent
-                    source: root.formattedArtUrl !== "" ? root.formattedArtUrl : root.cachedArtUrl
-                    fillMode: Image.PreserveAspectCrop
-                    asynchronous: true
-                    cache: true
-                    visible: root.hasMedia && source !== "" && status === Image.Ready
+                    radius: Atoll.albumOpenRadius
+                    visible: false
+                    layer.enabled: true
                 }
 
-                Rectangle {
+                Item {
+                    id: artContent
                     anchors.fill: parent
-                    visible: !artImage.visible
-                    gradient: Gradient {
-                        GradientStop { position: 0.0; color: "#26262e" }
-                        GradientStop { position: 1.0; color: "#141418" }
+                    visible: false
+                    layer.enabled: true
+
+                    Rectangle {
+                        anchors.fill: parent
+                        color: Colors.panelElevated
                     }
-                    SvgIcon {
-                        anchors.centerIn: parent
-                        iconName: "music.note"
-                        color: Colors.textTertiary
-                        implicitWidth: 30
-                        implicitHeight: 30
+
+                    // The cover is never hidden with a `visible:` binding: inside
+                    // a hidden layer the cover only makes it through the mask
+                    // MultiEffect when it is drawn unconditionally, and the
+                    // placeholder below hides itself once it is ready instead.
+                    Image {
+                        id: artImage
+                        anchors.fill: parent
+                        source: root.shownArtSource
+                        fillMode: Image.PreserveAspectCrop
+                        asynchronous: true
+                        cache: true
+                    }
+
+                    Rectangle {
+                        anchors.fill: parent
+                        visible: !(root.hasMedia && artImage.status === Image.Ready)
+                        gradient: Gradient {
+                            GradientStop { position: 0.0; color: "#26262e" }
+                            GradientStop { position: 1.0; color: "#141418" }
+                        }
+                        SvgIcon {
+                            anchors.centerIn: parent
+                            iconName: "music.note"
+                            color: Colors.textTertiary
+                            implicitWidth: 30
+                            implicitHeight: 30
+                        }
+                    }
+
+                    // albumArtDarkOverlay: dims the cover while paused.
+                    Rectangle {
+                        anchors.fill: parent
+                        color: "black"
+                        opacity: root.isPlaying ? 0.0 : 0.35
+                        Behavior on opacity { NumberAnimation { duration: 220 } }
                     }
                 }
 
-                // albumArtDarkOverlay: dims the cover while paused.
+                MultiEffect {
+                    anchors.fill: parent
+                    source: artContent
+                    maskEnabled: true
+                    maskSource: artMask
+                }
+
+                // Card-turn shading: darkens with the flip angle so the
+                // rotateY reads as a card turning, not a stretch.
                 Rectangle {
                     anchors.fill: parent
+                    radius: Atoll.albumOpenRadius
                     color: "black"
-                    opacity: root.isPlaying ? 0.0 : 0.35
-                    Behavior on opacity { NumberAnimation { duration: 220 } }
+                    opacity: Math.abs(artFlipRot.angle) / 88 * 0.6
+                }
+
+                Rectangle {
+                    anchors.fill: parent
+                    radius: Atoll.albumOpenRadius
+                    color: "transparent"
+                    border.color: Colors.hairline
+                    border.width: 1
                 }
             }
 
@@ -246,16 +371,25 @@ Item {
                 }
             }
 
+            // Interactive cover: left third = previous, centre = play/pause,
+            // right third = next (like Apple Music's hover controls, but
+            // driven by where you click).
             MouseArea {
                 anchors.fill: artClip
                 cursorShape: Qt.PointingHandCursor
-                onClicked: root.artClicked()
+                onClicked: mouse => {
+                    var third = width / 3;
+                    if (mouse.x < third) root.prevClicked();
+                    else if (mouse.x > width - third) root.nextClicked();
+                    else root.playPauseClicked();
+                }
             }
         }
 
         // ---- Track info, timeline, transport ----
         ColumnLayout {
             Layout.fillWidth: true
+            Layout.fillHeight: true
             Layout.alignment: Qt.AlignTop
             Layout.topMargin: Atoll.mediaInfoTop
             Layout.leftMargin: Atoll.mediaInfoLeading
@@ -309,7 +443,7 @@ Item {
                     font.pixelSize: Typography.s12
                     elide: Text.ElideRight
                     width: Math.min(implicitWidth,
-                        Math.max(40, root.width - Atoll.albumOpen - Atoll.mediaRowSpacing
+                        Math.max(40, root.width - art.artSize - Atoll.mediaRowSpacing
                                     - Atoll.mediaInfoLeading - 8))
                 }
             }
@@ -371,7 +505,49 @@ Item {
                 }
             }
 
-            Item { Layout.preferredHeight: 6 }
+            // The transport row sits on the artwork's bottom edge, as in the
+            // reference (the controls column fills the cover's height). The
+            // leftover space carries the waveform visualizer.
+            Item {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                Layout.topMargin: 4
+                visible: root.showVisualizer && root.hasMedia
+
+                readonly property real maxBar: Math.max(6, Math.min(34, height - 10))
+
+                Row {
+                    anchors.centerIn: parent
+                    spacing: 3
+
+                    // Cava bands run bass (left) to treble (right), so the
+                    // spectrum itself carries the shape — no synthetic
+                    // weighting. Height interpolates per-bar between frames.
+                    Repeater {
+                        model: AudioBars.bars
+
+                        delegate: Rectangle {
+                            required property int index
+                            width: 3
+                            radius: 1.5
+                            height: {
+                                if (!root.isPlaying) return 3;
+                                var lvl = AudioBars.active ? (AudioBars.levels[index] || 0) : 0;
+                                return 3 + lvl * parent.parent.maxBar;
+                            }
+                            anchors.verticalCenter: parent.verticalCenter
+                            color: root.sliderColor
+                            opacity: root.isPlaying ? 0.85 : 0.3
+
+                            Behavior on height {
+                                enabled: !root.reduceMotion
+                                NumberAnimation { duration: 90; easing.type: Easing.OutSine }
+                            }
+                            Behavior on opacity { NumberAnimation { duration: 200 } }
+                        }
+                    }
+                }
+            }
 
             // playbackControls: HStack(spacing: 8) over the configured 5 slots
             // (MusicControlButton.defaultLayout = shuffle, trackBackward,

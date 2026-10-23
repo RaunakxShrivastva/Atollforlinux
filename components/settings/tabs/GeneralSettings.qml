@@ -132,6 +132,24 @@ ColumnLayout {
             }
         }
         FormRow {
+            label: "Launch at login"
+            description: "Start the notch automatically when you sign in."
+            divider: false
+            FormToggle {
+                checked: Settings.values.launchAtLogin === true
+                onToggled: (v) => Settings.set("launchAtLogin", v)
+            }
+        }
+        FormRow {
+            label: "Auto-close when idle"
+            description: "Collapse the notch after the pointer leaves. Off keeps it open until you close it yourself."
+            divider: false
+            FormToggle {
+                checked: Settings.values.autoCloseNotch !== false
+                onToggled: (v) => Settings.set("autoCloseNotch", v)
+            }
+        }
+        FormRow {
             label: "Reduce motion"
             description: "Follow the desktop preference, or force motion on/off."
             FormPicker {

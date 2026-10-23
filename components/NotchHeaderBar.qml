@@ -126,49 +126,16 @@ RowLayout {
     Layout.rightMargin: Atoll.headerPadding
 
     // ---- Left: tab strip ----
-    // macOS Atoll marks the active tab with a Capsule behind the glyph, moved
-    // between tabs with a matchedGeometryEffect (i.e. it slides, springily).
-    // We reproduce that with one capsule whose x is driven by a spring on the
-    // selected index, so it travels with velocity continuity like the original.
+    // macOS Atoll marks the active tab with a white capsule behind the glyph.
+    // That pill sits flush against the window's top edge in notch/menu-bar
+    // modes and the content mask keeps shaving its top curve, so the selected
+    // state is carried by the glyph instead: bright white and slightly
+    // magnified, idle tabs stay dim.
     Item {
         id: tabStripHost
         Layout.alignment: Qt.AlignVCenter
         implicitWidth: tabStrip.width
         implicitHeight: Atoll.tabHeight
-
-        readonly property real step: Atoll.tabWidth + Atoll.tabSpacing
-        // Index of the active tab (-1 = none visible).
-        readonly property int selectedIndex: {
-            for (let i = 0; i < root.visibleTabs.length; i++) {
-                if (root.isTabSelected(root.visibleTabs[i].id))
-                    return i;
-            }
-            return -1;
-        }
-
-        Spring {
-            id: selectionSpring
-            target: tabStripHost.selectedIndex
-            response: root.reduceMotion ? 0.001 : 0.32
-            dampingFraction: root.reduceMotion ? 1.0 : 0.78
-        }
-        onSelectedIndexChanged: selectionSpring.target = selectedIndex
-        Component.onCompleted: selectionSpring.snap(selectedIndex)
-
-        // Sliding selection capsule (behind the glyphs: declared first).
-        // The active tab is a solid white pill with a black glyph, so the strip
-        // reads as a segmented control the way the reference screenshot does.
-        Rectangle {
-            id: selectionCapsule
-            visible: tabStripHost.selectedIndex >= 0
-            width: Atoll.tabCapsuleWidth
-            height: Atoll.tabCapsuleHeight
-            radius: height / 2
-            color: Colors.white
-            y: (parent.height - height) / 2
-            x: selectionSpring.value * tabStripHost.step
-                 + (Atoll.tabWidth - width) / 2
-        }
 
         Row {
             id: tabStrip
@@ -188,14 +155,15 @@ RowLayout {
                         anchors.centerIn: parent
                         iconName: tabItem.modelData.id === "NOTES" && !root.showNotes
                                   ? "doc.on.clipboard" : tabItem.modelData.icon
-                        color: root.isTabSelected(tabItem.modelData.id) ? Colors.black
-                             : (tabMouse.pressed ? Colors.white : Colors.tabIdle)
+                        color: root.isTabSelected(tabItem.modelData.id) || tabMouse.pressed
+                             ? Colors.white : Colors.tabIdle
                         implicitWidth: Atoll.tabIconSize
                         implicitHeight: Atoll.tabIconSize
-                        // HIG: every action gets visual feedback — a press dims
-                        // and scales the glyph (the system Button does the same).
-                        scale: tabMouse.pressed ? 0.86 : 1.0
-                        Behavior on scale { NumberAnimation { duration: Motion.instant; easing.type: Easing.OutCubic } }
+                        // Selected: white and magnified. Press: the HIG dim-and-
+                        // squash feedback (the system Button does the same).
+                        scale: root.isTabSelected(tabItem.modelData.id) ? 1.22
+                             : (tabMouse.pressed ? 0.86 : 1.0)
+                        Behavior on scale { NumberAnimation { duration: Motion.fast; easing.type: Easing.OutCubic } }
                         Behavior on color { ColorAnimation { duration: Motion.fast; easing.type: Easing.Bezier; easing.bezierCurve: Motion.smoothCurve } }
                     }
 

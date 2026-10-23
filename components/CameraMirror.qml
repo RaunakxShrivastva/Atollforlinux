@@ -23,12 +23,17 @@ Item {
         : (root.cornerRadiusScaling ? Atoll.albumOpenRadius : 12)
 
     // The rounded frame doubling as the mask for the video texture.
+    // MultiEffect only picks up texture-backed sources: without
+    // layer.enabled the hidden Rectangle never renders, so the mask stays
+    // empty and neither the 12px rounded rectangle nor the circle shape is
+    // ever applied to the camera feed.
     Rectangle {
         id: frame
         anchors.fill: parent
         radius: root.cornerRadius
         color: Colors.panelElevated
         visible: false
+        layer.enabled: true
     }
 
     CaptureSession {

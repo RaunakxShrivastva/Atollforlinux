@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Layouts
 import QtQuick.Effects
 import QtMultimedia
+import Quickshell
 import Quickshell.Io
 import "../theme"
 import "../services"
@@ -47,10 +48,11 @@ Item {
         Settings.clipboardEnabled && Settings.clipboardMode === "notchTab"
 
     // True while something in the island needs the keyboard (the clipboard
-    // popover's search field, the notes editor); shell.qml then lets the island
-    // take focus on demand.
+    // popover's search field, the notes editor, the terminal's command
+    // input); shell.qml then lets the island take focus on demand.
     readonly property bool wantsKeyboard:
         root.clipboardPopoverOpen || notesClipboard.wantsKeyboard
+        || (root.expanded && root.activeTab === "TERMINAL" && Settings.terminalEnabled)
 
     // Tabs that no longer exist (or that live elsewhere now) fall back.
     function sanitizeTab(tab) {
@@ -59,6 +61,19 @@ Item {
         if (tab === "TERMINAL" && !Settings.terminalEnabled) return "HOME";
         if (tab === "USAGE" && !Settings.llmUsageEnabled) return "HOME";
         return tab;
+    }
+
+    // Tab crossfade geometry: each tab's slide direction is its position
+    // relative to the active one (outgoing exits opposite the incoming).
+    readonly property var tabOrder: ({
+        "HOME": 0, "SHELF": 1, "TERMINAL": 2, "STATS": 3, "USAGE": 4,
+        "TIMER": 5, "NOTES": 6, "CLIPBOARD": 7, "DOWNLOADS": 8
+    })
+    function tabRel(tab) {
+        var a = root.tabOrder[root.activeTab];
+        var b = root.tabOrder[tab];
+        if (a === undefined || b === undefined) return 0;
+        return Math.max(-1, Math.min(1, b - a));
     }
 
     readonly property bool expanded: mode !== "COMPACT"
@@ -166,8 +181,23 @@ Item {
     // the custom closed width; the floating pill always does.
     readonly property real compactBaseWidth: (island || Settings.customizePhysicalNotchWidth)
         ? Settings.closedWidth : Atoll.closedWidth
-    readonly property real compactWidth: compactPill.showMedia
-        ? Math.max(compactBaseWidth, Atoll.closedMediaWidth) : compactBaseWidth
+    // Closed-notch width follows the content on the pill (media strip,
+    // notification takeover, idle clock/battery) instead of a fixed size:
+    // at least the base width, growing with the pill's own implicit width,
+    // capped so a long notification never eats the screen. An animated
+    // property (rather than the raw target) lets the notch morph smoothly
+    // when content appears or leaves.
+    readonly property real compactWidthTarget: {
+        var base = compactBaseWidth;
+        var content = compactPill.implicitWidth + 28;
+        if (content <= base) return base;
+        return Math.min(content, 460);
+    }
+    property real compactWidth: compactWidthTarget
+    Behavior on compactWidth {
+        enabled: !Settings.reduceMotionEnabled
+        NumberAnimation { duration: Motion.base; easing.type: Easing.OutCubic }
+    }
 
     // Per-tab content heights live in the spec so the harness stays in sync.
     readonly property real contentHeight: Atoll.tabContentHeight(activeTab)
@@ -242,6 +272,29 @@ Item {
         radius: root.topRadius
     }
 
+    // Content masks: the silhouette itself, kept as a hidden texture so the
+    // content below can be masked to it. A plain rectangular clip let glows
+    // (the album-art blur) spill past the bottom curves and hard-cut as a
+    // sharp blurry edge against the desktop.
+    NotchShape {
+        id: contentMask
+        anchors.fill: parent
+        visible: false
+        layer.enabled: true
+        fillColor: "white"
+        topRadius: root.topRadius
+        bottomRadius: root.bottomRadius
+    }
+
+    PillShape {
+        id: contentMaskPill
+        anchors.fill: parent
+        visible: false
+        layer.enabled: true
+        fillColor: "white"
+        radius: root.topRadius
+    }
+
     MultiEffect {
         source: notchShape
         anchors.fill: notchShape
@@ -286,6 +339,12 @@ Item {
     NotificationService {
         id: notifService
         onNewNotification: {
+            // Media > "Closed notch" > notifications on the closed pill:
+            // never force the notch open; the compact pill takes over and
+            // morphs to the notification's width (CompactPill.notifActive).
+            // With the setting off, Atoll's original behaviour: expand into
+            // the Clipboard tab where the notification is rendered in full.
+            if (Settings.closedNotchNotifications) return;
             root.mode = "EXPANDED";
             root.activeTab = "CLIPBOARD";
         }
@@ -366,6 +425,29 @@ Item {
         interval: 1600
         repeat: false
         onTriggered: root.hudActive = false
+    }
+
+    // File drags anywhere over the notch open it on the Shelf so the drop has
+    // somewhere to land. Drops inside the shelf itself are handled by the
+    // shelf's own DropAreas (share tile / chip panel); anything else (header,
+    // margins) lands as chips here. Leaving or dropping arms the usual
+    // collapse timer so a drag doesn't strand the notch open.
+    DropArea {
+        anchors.fill: parent
+        onEntered: {
+            collapseTimer.stop();
+            root.activeTab = "SHELF";
+            root.mode = "EXPANDED";
+        }
+        onExited: if (!notchHover.hovered) collapseTimer.restart()
+        onDropped: drop => {
+            var sp = shelfView.mapToItem(root, 0, 0);
+            var inside = drop.x >= sp.x && drop.x <= sp.x + shelfView.width
+                      && drop.y >= sp.y && drop.y <= sp.y + shelfView.height;
+            if (!inside)
+                shelfView.addPaths(shelfView.pathsFromDrop(drop));
+            if (!notchHover.hovered) collapseTimer.restart();
+        }
     }
 
     // Hover catcher. "Extend hover area" grows it from the pill's own silhouette
@@ -540,7 +622,9 @@ Item {
         }
     }
 
-    // Default tab when the island opens (HOME for media, STATS when idle).
+    // Default tab when the island opens. DynamicIslandViewModel.close() sets
+    // the view back to Home unless "Remember last tab" is on, so the island
+    // never reopens on STATS/TIMER just because the pointer reached it.
     function expandNow() {
         if (root.expanded) return;
         root.mode = "EXPANDED";
@@ -548,10 +632,8 @@ Item {
             root.activeTab = Settings.str("lastTab", "HOME");
         } else if (notifService.hasActiveNotification) {
             root.activeTab = "CLIPBOARD";
-        } else if (mprisService.hasMedia) {
-            root.activeTab = "HOME";
         } else {
-            root.activeTab = "STATS";
+            root.activeTab = "HOME";
         }
     }
 
@@ -562,13 +644,26 @@ Item {
         interval: Math.max(0, Settings.waitInterval * 1000)
         repeat: false
         onTriggered: {
-            if (!notchHover.hovered && root.mode !== "COMPACT" && !timerService.isRunning) {
+            // "Auto-close when idle" off keeps the notch open until the user
+            // closes it (tap, close gesture, or an action that collapses).
+            if (Settings.autoCloseNotch && !notchHover.hovered
+                && root.mode !== "COMPACT" && !timerService.isRunning) {
                 root.mode = "COMPACT";
             }
         }
     }
 
     // ---- Content ----
+    // Masked to the notch/pill silhouette so nothing (notably the media
+    // glow) can paint outside the shape.
+    Item {
+        anchors.fill: parent
+        layer.enabled: true
+        layer.effect: MultiEffect {
+            maskEnabled: true
+            maskSource: root.island ? contentMaskPill : contentMask
+        }
+
     Item {
         anchors.fill: parent
         anchors.leftMargin: root.sideInset
@@ -597,12 +692,27 @@ Item {
             showBattery: Settings.showBattery
             minimalBattery: Settings.values.showMinimalisticBatteryIndicator === true
             percentInside: Settings.values.showBatteryPercentInside === true
-            visualizer: Settings.musicVisualizer
+            visualizer: Settings.musicVisualizer && Settings.closedShowVisualizer
+            showAlbumArt: Settings.closedShowAlbumArt
+            showTrackTitle: Settings.closedShowTrackTitle
+            showClock: Settings.closedShowClock
+            notifActive: Settings.closedNotchNotifications
+                         && notifService.hasActiveNotification
+                         && !root.expanded
+            notifApp: notifService.appName
+            notifSummary: notifService.summary
+            notifBody: notifService.body
+            notifIcon: notifService.appIcon
+            onNotificationClicked: {
+                root.mode = "EXPANDED";
+                root.activeTab = "CLIPBOARD";
+            }
             barCount: Settings.visualizerBarCount
             reduceMotion: Settings.reduceMotionEnabled
             idleAlive: !mprisService.hasMedia && !root.hudActive && !Settings.reduceMotionEnabled
             timerActive: timerService.isRunning
                          && Settings.values.timerDisplayMode === "liveActivity"
+                         && Settings.closedShowTimer
             timerText: timerService.formattedTime
         }
 
@@ -662,6 +772,12 @@ Item {
             scale: 0.96 + 0.04 * root.contentProgress
             transformOrigin: Item.Top
             anchors.fill: parent
+            // Notch and menu-bar panels sit flush with the window's top edge,
+            // where the content mask's first texel row shaves the active-tab
+            // capsule (its 30px pill is taller than the 26px strip, so the top
+            // lands exactly on y=0). Three pixels of black headroom keep the
+            // pill fully round; the island already floats clear of the edge.
+            anchors.topMargin: root.island ? 0 : 3
             spacing: 0
 
             NotchHeaderBar {
@@ -677,9 +793,13 @@ Item {
                 showClipboardTab: Settings.clipboardSplit
                 showClipboardDedicatedTab: root.hasDedicatedClipboardTab
                 // Atoll hides the header clipboard icon in "separateTab" mode;
-                // there the clipboard is part of the Notes tab.
+                // there the clipboard is part of the Notes tab. In "notchTab"
+                // mode the dedicated CLIPBOARD tab is already in the strip, so
+                // the trailing clipboard capsule would be a second copy of the
+                // same thing - the tab is the entry point there.
                 showClipboardAction: Settings.clipboardHasAction
                                      && Settings.values.showClipboardIcon !== false
+                                     && !root.hasDedicatedClipboardTab
                 showStats: true
                 showNotes: Settings.notesEnabled
                 showDownloads: Settings.values.enableDownloadsWidget === true
@@ -739,7 +859,13 @@ Item {
             }
 
             Item {
-                Layout.fillWidth: true
+                // Preferred width (not Layout.fillWidth): the ColumnLayout's
+                // fill pass sizes this child against the window width instead
+                // of its own, pushing every tab's right edge 2*sideInset past
+                // the notch (chopped dash borders, the old chopped "Open"
+                // button). The preferred value tracks the parent directly, so
+                // the panel always lands inside the mask.
+                Layout.preferredWidth: parent.width - 2 * Atoll.headerPadding
                 Layout.fillHeight: true
                 Layout.margins: Atoll.headerPadding
                 // Atoll blurs the view content while the notch is closed
@@ -760,11 +886,29 @@ Item {
                 Item {
                     id: homeRow
                     anchors.fill: parent
-                    visible: root.activeTab === "HOME"
+                    // Tab transition (Atoll-style): crossfade with a slight
+                    // slide + scale; the direction follows the tab's position
+                    // relative to the active one, so the outgoing view exits
+                    // opposite the incoming one. `enabled` isolates input
+                    // while the outgoing view is still fading.
+                    property real _slide: root.activeTab === "HOME" ? 0
+                        : root.tabRel("HOME") * (Settings.reduceMotionEnabled ? 0 : 20)
+                    opacity: root.activeTab === "HOME" ? 1 : 0
+                    enabled: root.activeTab === "HOME"
+                    scale: root.activeTab === "HOME" ? 1
+                        : (Settings.reduceMotionEnabled ? 1 : 0.96)
+                    transformOrigin: Item.Center
+                    transform: Translate { x: homeRow._slide }
+                    visible: opacity > 0.001
+                    Behavior on opacity { NumberAnimation { duration: Motion.base; easing.type: Easing.OutCubic } }
+                    Behavior on scale { NumberAnimation { duration: Motion.base; easing.type: Easing.OutCubic } }
+                    Behavior on _slide { NumberAnimation { duration: Motion.base; easing.type: Easing.OutCubic } }
 
                     readonly property real gap: 12
-                    // Media > "Auto-hide inactive notch media player".
-                    readonly property bool mediaVisible: !Settings.autoHideInactiveMedia || mprisService.hasMedia
+                    // Media > "Standard media controls" + "Auto-hide inactive
+                    // notch media player" (NotchHomeView.shouldShowMusicPlayer).
+                    readonly property bool mediaVisible: Settings.standardMediaControls
+                        && (!Settings.autoHideInactiveMedia || mprisService.hasMedia)
                     readonly property bool sideLyrics: root.sideLyricsActive
                     // The side panel and the calendar never share the row.
                     readonly property bool calendarVisible: Settings.showCalendar && !homeRow.sideLyrics
@@ -870,6 +1014,7 @@ Item {
                             showStandardControls: Settings.standardMediaControls
                             skipBehavior: Settings.musicSkipBehavior
                             waveformScrubber: Settings.waveformScrubber
+                            showVisualizer: Settings.musicVisualizer
                             showInlineLyric: Settings.lyrics && homeRow.calendarVisible
                             inlineLyric: lyricsService.currentLine
                             inlineInstrumental: lyricsService.isInstrumentalBreak
@@ -897,8 +1042,17 @@ Item {
                         width: homeRow.cols.calendar.w
                         visible: homeRow.calendarVisible && width > 0
 
+                        // NotchHomeView swaps CalendarView for the two-pane
+                        // StandaloneCalendarView when the player is hidden.
                         CalendarWidget {
+                            visible: homeRow.mediaVisible
                             events: calendar.upcoming
+                        }
+
+                        StandaloneCalendar {
+                            anchors.fill: parent
+                            visible: !homeRow.mediaVisible
+                            events: calendar.agenda
                         }
                     }
 
@@ -934,6 +1088,7 @@ Item {
                         visible: homeRow.mirror && width > 0
 
                         CameraMirror {
+                            id: camMirror
                             anchors.fill: parent
                             device: mediaDevices.videoInputs.length > 0
                                 ? mediaDevices.videoInputs[0] : null
@@ -945,7 +1100,24 @@ Item {
                 }
 
                 SystemWidget {
-                    visible: root.activeTab === "STATS"
+                    id: tabStats
+                    // Tab transition (Atoll-style): crossfade with a slight
+                    // slide + scale; the direction follows the tab's position
+                    // relative to the active one, so the outgoing view exits
+                    // opposite the incoming one. `enabled` isolates input
+                    // while the outgoing view is still fading.
+                    property real _slide: root.activeTab === "STATS" ? 0
+                        : root.tabRel("STATS") * (Settings.reduceMotionEnabled ? 0 : 20)
+                    opacity: root.activeTab === "STATS" ? 1 : 0
+                    enabled: root.activeTab === "STATS"
+                    scale: root.activeTab === "STATS" ? 1
+                        : (Settings.reduceMotionEnabled ? 1 : 0.96)
+                    transformOrigin: Item.Center
+                    transform: Translate { x: tabStats._slide }
+                    visible: opacity > 0.001
+                    Behavior on opacity { NumberAnimation { duration: Motion.base; easing.type: Easing.OutCubic } }
+                    Behavior on scale { NumberAnimation { duration: Motion.base; easing.type: Easing.OutCubic } }
+                    Behavior on _slide { NumberAnimation { duration: Motion.base; easing.type: Easing.OutCubic } }
                     cpuUsage: sysService.cpuUsage
                     ramUsage: sysService.ramUsage
                     ramUsedMb: sysService.ramUsedMb
@@ -976,8 +1148,25 @@ Item {
                 // Atoll refreshes on the view's .onAppear; a tab switch is the
                 // same moment here. The service debounces to one scan a minute.
                 LLMUsageView {
+                    id: tabUsage
                     anchors.fill: parent
-                    visible: root.activeTab === "USAGE"
+                    // Tab transition (Atoll-style): crossfade with a slight
+                    // slide + scale; the direction follows the tab's position
+                    // relative to the active one, so the outgoing view exits
+                    // opposite the incoming one. `enabled` isolates input
+                    // while the outgoing view is still fading.
+                    property real _slide: root.activeTab === "USAGE" ? 0
+                        : root.tabRel("USAGE") * (Settings.reduceMotionEnabled ? 0 : 20)
+                    opacity: root.activeTab === "USAGE" ? 1 : 0
+                    enabled: root.activeTab === "USAGE"
+                    scale: root.activeTab === "USAGE" ? 1
+                        : (Settings.reduceMotionEnabled ? 1 : 0.96)
+                    transformOrigin: Item.Center
+                    transform: Translate { x: tabUsage._slide }
+                    visible: opacity > 0.001
+                    Behavior on opacity { NumberAnimation { duration: Motion.base; easing.type: Easing.OutCubic } }
+                    Behavior on scale { NumberAnimation { duration: Motion.base; easing.type: Easing.OutCubic } }
+                    Behavior on _slide { NumberAnimation { duration: Motion.base; easing.type: Easing.OutCubic } }
                     service: LLMUsageService
                     providers: Settings.llmProviders.filter(
                         p => Settings.llmProviderEnabled(p.id))
@@ -987,7 +1176,24 @@ Item {
                 }
 
                 TimerWidget {
-                    visible: root.activeTab === "TIMER"
+                    id: tabTimer
+                    // Tab transition (Atoll-style): crossfade with a slight
+                    // slide + scale; the direction follows the tab's position
+                    // relative to the active one, so the outgoing view exits
+                    // opposite the incoming one. `enabled` isolates input
+                    // while the outgoing view is still fading.
+                    property real _slide: root.activeTab === "TIMER" ? 0
+                        : root.tabRel("TIMER") * (Settings.reduceMotionEnabled ? 0 : 20)
+                    opacity: root.activeTab === "TIMER" ? 1 : 0
+                    enabled: root.activeTab === "TIMER"
+                    scale: root.activeTab === "TIMER" ? 1
+                        : (Settings.reduceMotionEnabled ? 1 : 0.96)
+                    transformOrigin: Item.Center
+                    transform: Translate { x: tabTimer._slide }
+                    visible: opacity > 0.001
+                    Behavior on opacity { NumberAnimation { duration: Motion.base; easing.type: Easing.OutCubic } }
+                    Behavior on scale { NumberAnimation { duration: Motion.base; easing.type: Easing.OutCubic } }
+                    Behavior on _slide { NumberAnimation { duration: Motion.base; easing.type: Easing.OutCubic } }
                     formattedTime: timerService.formattedTime
                     isRunning: timerService.isRunning
                     presets: Settings.values.timerPresets || []
@@ -999,8 +1205,25 @@ Item {
                 }
 
                 TerminalView {
+                    id: tabTerminal
                     anchors.fill: parent
-                    visible: root.activeTab === "TERMINAL"
+                    // Tab transition (Atoll-style): crossfade with a slight
+                    // slide + scale; the direction follows the tab's position
+                    // relative to the active one, so the outgoing view exits
+                    // opposite the incoming one. `enabled` isolates input
+                    // while the outgoing view is still fading.
+                    property real _slide: root.activeTab === "TERMINAL" ? 0
+                        : root.tabRel("TERMINAL") * (Settings.reduceMotionEnabled ? 0 : 20)
+                    opacity: root.activeTab === "TERMINAL" ? 1 : 0
+                    enabled: root.activeTab === "TERMINAL"
+                    scale: root.activeTab === "TERMINAL" ? 1
+                        : (Settings.reduceMotionEnabled ? 1 : 0.96)
+                    transformOrigin: Item.Center
+                    transform: Translate { x: tabTerminal._slide }
+                    visible: opacity > 0.001
+                    Behavior on opacity { NumberAnimation { duration: Motion.base; easing.type: Easing.OutCubic } }
+                    Behavior on scale { NumberAnimation { duration: Motion.base; easing.type: Easing.OutCubic } }
+                    Behavior on _slide { NumberAnimation { duration: Motion.base; easing.type: Easing.OutCubic } }
                     service: TerminalService
                     featureEnabled: Settings.terminalEnabled
                     shellName: Settings.terminalShell
@@ -1009,7 +1232,24 @@ Item {
                 }
 
                 DownloadsView {
-                    visible: root.activeTab === "DOWNLOADS"
+                    id: tabDownloads
+                    // Tab transition (Atoll-style): crossfade with a slight
+                    // slide + scale; the direction follows the tab's position
+                    // relative to the active one, so the outgoing view exits
+                    // opposite the incoming one. `enabled` isolates input
+                    // while the outgoing view is still fading.
+                    property real _slide: root.activeTab === "DOWNLOADS" ? 0
+                        : root.tabRel("DOWNLOADS") * (Settings.reduceMotionEnabled ? 0 : 20)
+                    opacity: root.activeTab === "DOWNLOADS" ? 1 : 0
+                    enabled: root.activeTab === "DOWNLOADS"
+                    scale: root.activeTab === "DOWNLOADS" ? 1
+                        : (Settings.reduceMotionEnabled ? 1 : 0.96)
+                    transformOrigin: Item.Center
+                    transform: Translate { x: tabDownloads._slide }
+                    visible: opacity > 0.001
+                    Behavior on opacity { NumberAnimation { duration: Motion.base; easing.type: Easing.OutCubic } }
+                    Behavior on scale { NumberAnimation { duration: Motion.base; easing.type: Easing.OutCubic } }
+                    Behavior on _slide { NumberAnimation { duration: Motion.base; easing.type: Easing.OutCubic } }
                     entries: downloads.entries
                     onOpenRequested: path => downloads.open(path)
                     onOpenFolder: root.exec("xdg-open " + downloads.dir)
@@ -1021,7 +1261,23 @@ Item {
                 NotesClipboardView {
                     id: notesClipboard
                     anchors.fill: parent
-                    visible: root.activeTab === "NOTES"
+                    // Tab transition (Atoll-style): crossfade with a slight
+                    // slide + scale; the direction follows the tab's position
+                    // relative to the active one, so the outgoing view exits
+                    // opposite the incoming one. `enabled` isolates input
+                    // while the outgoing view is still fading.
+                    property real _slide: root.activeTab === "NOTES" ? 0
+                        : root.tabRel("NOTES") * (Settings.reduceMotionEnabled ? 0 : 20)
+                    opacity: root.activeTab === "NOTES" ? 1 : 0
+                    enabled: root.activeTab === "NOTES"
+                    scale: root.activeTab === "NOTES" ? 1
+                        : (Settings.reduceMotionEnabled ? 1 : 0.96)
+                    transformOrigin: Item.Center
+                    transform: Translate { x: notesClipboard._slide }
+                    visible: opacity > 0.001
+                    Behavior on opacity { NumberAnimation { duration: Motion.base; easing.type: Easing.OutCubic } }
+                    Behavior on scale { NumberAnimation { duration: Motion.base; easing.type: Easing.OutCubic } }
+                    Behavior on _slide { NumberAnimation { duration: Motion.base; easing.type: Easing.OutCubic } }
                     clipboardVisible: Settings.clipboardSplit && root.activeTab !== "CLIPBOARD"
                     notesVisible: Settings.notesEnabled
                     entries: ClipboardService.entries
@@ -1059,8 +1315,25 @@ Item {
 
                 // Dedicated clipboard tab (clipboardDisplayMode == "notchTab").
                 Item {
+                    id: tabClipboard
                     anchors.fill: parent
-                    visible: root.activeTab === "CLIPBOARD"
+                    // Tab transition (Atoll-style): crossfade with a slight
+                    // slide + scale; the direction follows the tab's position
+                    // relative to the active one, so the outgoing view exits
+                    // opposite the incoming one. `enabled` isolates input
+                    // while the outgoing view is still fading.
+                    property real _slide: root.activeTab === "CLIPBOARD" ? 0
+                        : root.tabRel("CLIPBOARD") * (Settings.reduceMotionEnabled ? 0 : 20)
+                    opacity: root.activeTab === "CLIPBOARD" ? 1 : 0
+                    enabled: root.activeTab === "CLIPBOARD"
+                    scale: root.activeTab === "CLIPBOARD" ? 1
+                        : (Settings.reduceMotionEnabled ? 1 : 0.96)
+                    transformOrigin: Item.Center
+                    transform: Translate { x: tabClipboard._slide }
+                    visible: opacity > 0.001
+                    Behavior on opacity { NumberAnimation { duration: Motion.base; easing.type: Easing.OutCubic } }
+                    Behavior on scale { NumberAnimation { duration: Motion.base; easing.type: Easing.OutCubic } }
+                    Behavior on _slide { NumberAnimation { duration: Motion.base; easing.type: Easing.OutCubic } }
 
                     ClipboardView {
                         anchors.fill: parent
@@ -1083,26 +1356,26 @@ Item {
                         }
                     }
                 }
-                QuickActionLauncher {
-                    visible: root.activeTab === "SHELF"
-                    showLabels: Settings.values.tileShowLabels === true
-                    showEmoji: Settings.values.showEmojis === true
-                    onLaunchColorPicker: {
-                        if (Settings.values.enableColorPickerFeature !== false) ColorPickerService.pick();
-                        root.mode = "COMPACT";
-                    }
-                    onLaunchScreenshot: {
-                        root.exec("hyprshot -m region || grim -g \"$(slurp)\" - | wl-copy || spectacle -r -b -n -o /tmp/atoll_shot.png || gnome-screenshot -a")
-                        root.mode = "COMPACT"
-                    }
-                    onLaunchTerminal: {
-                        TerminalService.launch();
-                        root.mode = "COMPACT";
-                    }
-                    onLaunchEmoji: {
-                        root.exec("command -v wtype >/dev/null && wtype \"\ud83d\ude00\" || wl-copy <<< \"\ud83d\ude00\"");
-                        root.mode = "COMPACT";
-                    }
+                // Shelf: Quick Share tile + drop panel (Atoll's ShelfView).
+                ShelfView {
+                    id: shelfView
+                    // Tab transition (Atoll-style): crossfade with a slight
+                    // slide + scale; the direction follows the tab's position
+                    // relative to the active one, so the outgoing view exits
+                    // opposite the incoming one. `enabled` isolates input
+                    // while the outgoing view is still fading.
+                    property real _slide: root.activeTab === "SHELF" ? 0
+                        : root.tabRel("SHELF") * (Settings.reduceMotionEnabled ? 0 : 20)
+                    opacity: root.activeTab === "SHELF" ? 1 : 0
+                    enabled: root.activeTab === "SHELF"
+                    scale: root.activeTab === "SHELF" ? 1
+                        : (Settings.reduceMotionEnabled ? 1 : 0.96)
+                    transformOrigin: Item.Center
+                    transform: Translate { x: shelfView._slide }
+                    visible: opacity > 0.001
+                    Behavior on opacity { NumberAnimation { duration: Motion.base; easing.type: Easing.OutCubic } }
+                    Behavior on scale { NumberAnimation { duration: Motion.base; easing.type: Easing.OutCubic } }
+                    Behavior on _slide { NumberAnimation { duration: Motion.base; easing.type: Easing.OutCubic } }
                 }
 
                 // ---- Extras menu (header "…") ----
@@ -1173,6 +1446,7 @@ Item {
             }
         }
     }
+    } // Item (content mask host)
 
     property Process toolProcess: Process {}
 
@@ -1226,6 +1500,59 @@ Item {
                 }
                 notesClipboard.applyClipboard(text, imagePath, notePasteProc.intoEditor);
             }
+        }
+    }
+
+    // Dev/test control: `quickshell ipc call atoll tab SHELF`.
+    IpcHandler {
+        target: "atoll"
+        function tab(name: string): void {
+            root.activeTab = root.sanitizeTab(name);
+            if (!root.expanded) root.mode = "EXPANDED";
+        }
+        function collapse(): void { root.mode = "COMPACT"; }
+        // Dev/test: feed the live terminal session (e.g. termSend "pwd").
+        function termSend(line: string): void { TerminalService.send(line); }
+        function termRaw(bytes: string): void { TerminalService.writeRaw(bytes); }
+        // Dev/test: flip a setting live without editing the file (bypasses restart).
+        function devSet(key: string, value: string): void {
+            if (value === "true") Settings.set(key, true);
+            else if (value === "false") Settings.set(key, false);
+            else if (!isNaN(Number(value)) && value !== "") Settings.set(key, Number(value));
+            else Settings.set(key, value);
+        }
+        // Dev/test: inspect the live notification parse + pill geometry.
+        function notifProbe(): string {
+            return notifService.appName + " | " + notifService.summary + " | "
+                 + notifService.body + " | icon=" + notifService.appIcon
+                 + " | active=" + notifService.hasActiveNotification
+                 + " | pillW=" + compactPill.implicitWidth
+                 + " | notifRowW=" + compactPill.notifRowWidth()
+                 + " | showMedia=" + compactPill.showMedia
+                 + " | mediaVis=" + compactPill.mediaContentVisible
+                 + " | clock=[" + compactPill.clockTime + "]"
+                 + " | minimalistic=" + Settings.minimalisticUI
+                 + " | title=[" + compactPill.title + "]"
+                 + " | cam=" + root.cameraAvailable
+                 + " | vidInputs=" + mediaDevices.videoInputs.length
+                 + " | mirrorColW=" + homeRow.cols.mirror.w
+                 + " | expanded=" + root.expanded
+                 + " | shape=" + Settings.values.mirrorShape
+                 + " | homeRowH=" + homeRow.height
+                 + " | homeRowW=" + homeRow.width
+                 + " | mediaVisCol=" + homeRow.mediaVisible
+                 + " | calVis=" + homeRow.calendarVisible
+                 + " | sideLyrics=" + homeRow.sideLyrics
+                 + " | mirrorHostH=" + homeMirrorHost.height
+                 + " | mirrorVisible=" + homeMirrorHost.visible
+                 + " | camShape=" + camMirror.shape
+                 + " | camRadius=" + camMirror.cornerRadius
+                 + " | camAvail=" + camMirror.cameraAvailable
+                 + " | mirrorHostW=" + homeMirrorHost.width
+                 + " | homeRowMirror=" + homeRow.mirror
+                 + " | homeRowVis=" + homeRow.visible
+                 + " | homeRowOp=" + homeRow.opacity
+                 + " | activeTab=" + root.activeTab;
         }
     }
 }

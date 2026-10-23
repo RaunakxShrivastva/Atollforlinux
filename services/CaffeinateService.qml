@@ -32,8 +32,16 @@ QtObject {
 
     function applyDuration() {
         durationTimer.stop();
-        var n = Number(duration);
-        if (duration !== "indefinite" && isFinite(n) && n > 0) {
+        // Battery > "Default duration" stores "indefinite" or a suffixed string
+        // ("15m", "1h", "2h"). Number("15m") is NaN, which used to leave every
+        // timed option silently identical to Indefinitely -- parse the suffix.
+        var s = String(duration);
+        if (s === "" || s === "indefinite") return;
+        var n = NaN;
+        var m = /^(\d+(?:\.\d+)?)([mh])$/.exec(s);
+        if (m) n = parseFloat(m[1]) * (m[2] === "h" ? 60 : 1);
+        else n = Number(s);
+        if (isFinite(n) && n > 0) {
             durationTimer.interval = n * 60 * 1000;
             durationTimer.restart();
         }

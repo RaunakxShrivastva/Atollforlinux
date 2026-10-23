@@ -12,7 +12,9 @@ case "$1" in
         ;;
     stop)
         echo "Stopping Atoll Dynamic Island..."
-        killall -9 quickshell || true
+        # Only Atoll's own instance - never every quickshell on the system
+        # (that would also kill the desktop shell, e.g. the Ryoku bar).
+        pkill -9 -f "quickshell.*-p $ATOLL_DIR/shell.qml" || true
         echo "Atoll stopped."
         ;;
     restart)
@@ -21,7 +23,7 @@ case "$1" in
         "$0" start
         ;;
     status)
-        if pgrep -f "shell.qml" > /dev/null; then
+        if pgrep -f "quickshell.*-p $ATOLL_DIR/shell.qml" > /dev/null; then
             echo "Atoll for Linux is RUNNING."
         else
             echo "Atoll for Linux is STOPPED."

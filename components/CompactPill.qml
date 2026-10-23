@@ -28,6 +28,21 @@ RowLayout {
     property bool visualizer: true          // useMusicVisualizer
     property int barCount: 4                // visualizerBarCount
 
+    // Per-item closed-notch toggles (Media > "Closed notch").
+    property bool showAlbumArt: true        // closedShowAlbumArt
+    property bool showTrackTitle: true      // closedShowTrackTitle
+    property bool showClock: true           // closedShowClock
+
+    // Notification takeover: while one is active it replaces the media row
+    // (Dynamic Island style) and the notch morphs to its content width.
+    property bool notifActive: false
+    property string notifApp: ""
+    property string notifSummary: ""
+    property string notifBody: ""
+    property string notifIcon: ""
+    signal notificationClicked()
+    function notifRowWidth(): real { return notifRow.implicitWidth; }
+
     // Productivity > Timer with displayMode "liveActivity": the running
     // countdown takes over the closed pill.
     property bool timerActive: false
@@ -47,6 +62,14 @@ RowLayout {
 
     readonly property bool showMedia: !root.timerActive
                                       && (isMediaPlaying || (title !== "" && title !== "Unknown Track"))
+    // True when at least one media item is actually drawn on the pill. When
+    // media plays but every per-item toggle (Media > "Closed notch") is off,
+    // the pill falls back to the idle presentation (clock/battery) instead of
+    // going blank -- the closed notch always shows something.
+    readonly property bool mediaContentVisible: root.showMedia && !root.notifActive
+        && (root.showAlbumArt
+            || (root.showTrackTitle && !root.minimalistic)
+            || (root.visualizer && !root.minimalistic))
 
     spacing: 10
 
@@ -85,7 +108,7 @@ RowLayout {
     // ---- Media layout ----
     // Left: album thumbnail
     Rectangle {
-        visible: root.showMedia
+        visible: root.showMedia && root.showAlbumArt && !root.notifActive
         Layout.alignment: Qt.AlignVCenter
         Layout.leftMargin: 6
         implicitWidth: 19
@@ -116,7 +139,7 @@ RowLayout {
 
     // Center: "Title • Artist"
     Text {
-        visible: root.showMedia && !root.minimalistic
+        visible: root.showMedia && !root.minimalistic && root.showTrackTitle && !root.notifActive
         Layout.alignment: Qt.AlignVCenter
         Layout.maximumWidth: 196
         text: root.artist !== "" ? root.title + "  \u2022  " + root.artist : root.title
@@ -131,7 +154,7 @@ RowLayout {
 
     // Right: waveform inside a translucent capsule (Atoll's AudioVisualizerView)
     Rectangle {
-        visible: root.showMedia && !root.minimalistic && root.visualizer
+        visible: root.showMedia && !root.minimalistic && root.visualizer && !root.notifActive
         Layout.alignment: Qt.AlignVCenter
         Layout.rightMargin: 6
         implicitWidth: 30
@@ -165,9 +188,101 @@ RowLayout {
         }
     }
 
+    // Notification takeover row (Media > "Closed notch" > notifications on).
+    // Replaces the media strip while a notification is live; the notch width
+    // follows this row's implicit width (NotchContainer binds to it).
+    Item {
+        id: notifRow
+        visible: root.notifActive
+        Layout.alignment: Qt.AlignVCenter
+        implicitWidth: notifInner.implicitWidth
+        implicitHeight: notifInner.implicitHeight
+
+        RowLayout {
+            id: notifInner
+            anchors.fill: parent
+            spacing: 8
+
+            // App icon badge, like the album thumbnail's shape language.
+            Rectangle {
+                Layout.alignment: Qt.AlignVCenter
+                implicitWidth: 19
+                implicitHeight: 19
+                radius: 5
+                color: Colors.surfaceHover
+                clip: true
+
+                Image {
+                    id: notifIconImg
+                    anchors.fill: parent
+                    anchors.margins: 3
+                    source: root.notifIcon
+                    fillMode: Image.PreserveAspectFit
+                    asynchronous: true
+                    visible: status === Image.Ready
+                }
+                SvgIcon {
+                    anchors.centerIn: parent
+                    visible: notifIconImg.status !== Image.Ready
+                    iconName: "bell"
+                    color: Colors.textSecondary
+                    implicitWidth: 12
+                    implicitHeight: 12
+                }
+            }
+
+            // App name over summary, both single-line elided; body trails the
+            // summary when there is no app name to lead with. ColumnLayout +
+            // Layout.fillWidth (not Column + width: parent.width) so the
+            // implicit width flows out to the notch without a binding loop.
+            ColumnLayout {
+                Layout.alignment: Qt.AlignVCenter
+                Layout.maximumWidth: 240
+                spacing: 0
+
+                Text {
+                    Layout.fillWidth: true
+                    visible: text !== ""
+                    text: root.notifApp
+                    color: Colors.textSecondary
+                    font.family: Typography.family
+                    font.pixelSize: Typography.s10
+                    font.weight: Typography.medium
+                    font.letterSpacing: Typography.trackTight
+                    elide: Text.ElideRight
+                    renderType: Text.QtRendering
+                }
+                Text {
+                    Layout.fillWidth: true
+                    text: root.notifBody !== ""
+                        ? root.notifSummary + "  \u2022  " + root.notifBody
+                        : root.notifSummary
+                    color: Colors.textPrimary
+                    font.family: Typography.family
+                    font.pixelSize: Typography.s12
+                    font.weight: Typography.semibold
+                    font.letterSpacing: Typography.trackTight
+                    elide: Text.ElideRight
+                    renderType: Text.QtRendering
+                }
+            }
+        }
+
+        MouseArea {
+            anchors.fill: parent
+            cursorShape: Qt.PointingHandCursor
+            onClicked: root.notificationClicked()
+        }
+    }
+
     // Center: 12-Hour Clock Readout (idle state only)
     Text {
-        visible: !root.showMedia && !root.minimalistic
+        // The explicit "Show clock" toggle (Media > Closed notch) is the
+        // single source of truth; minimalistic no longer hides it. Hidden
+        // only while something else owns the pill (media content, timer,
+        // notification takeover).
+        visible: root.showClock && !root.mediaContentVisible && !root.notifActive
+                 && !root.timerActive
         opacity: root.idlePulse
         text: root.clockTime
         color: Colors.textPrimary
@@ -181,7 +296,7 @@ RowLayout {
 
     // Center: live timer (takes over the pill while a timer runs)
     RowLayout {
-        visible: root.timerActive
+        visible: root.timerActive && !root.notifActive
         Layout.alignment: Qt.AlignVCenter
         spacing: 6
 
@@ -207,7 +322,13 @@ RowLayout {
     // Right Component: Battery Level & Charging Indicator (idle state only --
     // the collapsed media strip on macOS carries no clock/battery).
     RowLayout {
-        visible: root.showBattery && !root.showMedia && !root.timerActive
+        // Show battery is the master switch for the closed pill; the
+        // minimalistic-mode switch (Live Activities) only matters when
+        // minimalistic hides everything else, and a notification takeover
+        // always owns the pill alone.
+        visible: root.showBattery && !root.mediaContentVisible && !root.timerActive
+                 && !root.notifActive
+                 && (!root.minimalistic || root.minimalBattery || root.showMedia)
                  && (!root.minimalistic || root.minimalBattery)
         opacity: root.idlePulse
         spacing: 4

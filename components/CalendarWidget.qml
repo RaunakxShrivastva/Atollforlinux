@@ -1,14 +1,18 @@
 import QtQuick
 import QtQuick.Layouts
 import "../theme"
+import "../services"
 
 // Port of Atoll's `CalendarView` (components/Calendar/DynamicIslandCalendar.swift),
 // i.e. the calendar that lives *inside the Home tab* — not the big standalone
 // month grid. Its shape is:
 //
-//   header row   |  collapsed: one small "Wed, Dec 24" line
-//                |  hovered  : month + year label, next to a date wheel
+//   header row   |  month + year label, next to the date wheel
 //   events area  |  the day's events, or the "No events today" empty state
+//
+// The reference home tab keeps the month label, the week strip and the events
+// visible at once (no collapsed one-line state); the wheel can still be
+// collapsed by setting expanded: false.
 //
 // The date wheel is a horizontally snapping strip of {weekday, day} cells; the
 // selected cell carries an accent pill and today's number sits in an accent
@@ -18,7 +22,9 @@ ColumnLayout {
 
     property var events: []            // CalendarService.upcoming (ts + summary + allDay)
     property date selectedDate: new Date()
-    property bool expanded: false      // hover expands the date wheel
+    // The reference home tab shows the month label, the week strip and the
+    // day's events all the time - it does not collapse to a one-line header.
+    property bool expanded: true
 
     spacing: 0
     anchors.fill: parent
@@ -81,13 +87,11 @@ ColumnLayout {
     // ---- Row 1: date header ----
     Item {
         Layout.fillWidth: true
-        Layout.preferredHeight: root.expanded ? 54 : 22
+        Layout.preferredHeight: root.expanded ? 48 : 22
 
         Behavior on Layout.preferredHeight {
             NumberAnimation { duration: Motion.fast; easing.type: Easing.OutCubic }
         }
-
-        HoverHandler { onHoveredChanged: root.expanded = hovered }
 
         RowLayout {
             anchors.fill: parent
@@ -115,7 +119,11 @@ ColumnLayout {
 
                 Column {
                     anchors.left: parent.left
-                    anchors.verticalCenter: parent.verticalCenter
+                    // Line the month up with the wheel's weekday row instead
+                    // of floating mid-strip (the old vertical centring left a
+                    // visible gap between "Oct" and the dates).
+                    anchors.top: parent.top
+                    anchors.topMargin: 4
                     spacing: 1
                     visible: root.expanded
 
@@ -145,30 +153,74 @@ ColumnLayout {
                 visible: root.expanded
                 opacity: root.expanded ? 1 : 0
 
+                // The blue point: the old today-circle shape (small, hugging
+                // the day NUMBER), but fixed at the strip's centre row. Dates
+                // scroll past it; whichever date sits under it turns
+                // white-on-blue and zooms, then shrinks and fades as it
+                // leaves. y matches the Column's number row (~weekday + gap).
+                Rectangle {
+                    x: parent.width / 2 - width / 2
+                    y: parent.height / 2 + 11 - height / 2
+                    width: 22
+                    height: 22
+                    radius: 11
+                    color: Colors.accent
+                }
+
                 ListView {
                     id: wheel
                     anchors.fill: parent
                     orientation: ListView.Horizontal
                     model: root.cells
                     boundsBehavior: Flickable.StopAtBounds
-                    snapMode: ListView.SnapToItem
+                    snapMode: ListView.NoSnap
                     cacheBuffer: 400
                     spacing: 0
+
+                    // Manual, eased snap-to-centre (the blue point). The
+                    // "selected" day is whichever cell rests on the point.
+                    readonly property real snapOffset: width / 2 - cellWidth / 2
+                    function snapX(index) {
+                        return Math.max(0, Math.min(contentWidth - width,
+                            index * cellWidth - snapOffset));
+                    }
+                    function settle() {
+                        if (cellWidth <= 0 || contentWidth <= 0) return;
+                        var idx = Math.round((contentX + snapOffset) / cellWidth);
+                        idx = Math.max(0, Math.min(root.cells.length - 1, idx));
+                        snapAnim.to = snapX(idx);
+                        snapAnim.start();
+                        if (root.cells[idx]
+                            && !root.sameDay(root.cells[idx].date, root.selectedDate))
+                            root.selectedDate = root.cells[idx].date;
+                    }
+                    onMovementEnded: {
+                        userMoved = true;
+                        settle();
+                    }
+                    NumberAnimation {
+                        id: snapAnim
+                        target: wheel
+                        property: "contentX"
+                        duration: Motion.base
+                        easing.type: Easing.OutCubic
+                    }
 
                     // Never cram seven cells into a narrow column (the mirror
                     // can leave the calendar ~200pt): below 30pt the weekday
                     // and day labels overlap, so let the strip scroll instead.
                     readonly property real cellWidth: Math.max(30, width / root.cellVisible)
 
-                    // The reference opens on the week that holds today (Mon..Sun),
-                    // not on a strip centred under it. Park the view on that
-                    // Monday's cell as soon as the strip has a size.
-                    property bool positioned: false
+                    // Open with TODAY parked on the blue point (centre).
+                    // Re-parks on every width change until the user takes
+                    // over: the first layout passes can run with a stub width
+                    // whose snapOffset is wrong, and a one-shot lock would
+                    // leave the strip parked three cells off.
+                    property bool userMoved: false
                     function positionWeek() {
-                        if (positioned) return;
-                        if (width <= 0 || cellWidth <= 0) return;
-                        positioned = true;
-                        positionViewAtIndex(root.weekStartIndex, ListView.Beginning);
+                        if (userMoved) return;
+                        if (width < cellWidth * 3 || cellWidth <= 0) return;
+                        contentX = snapX(root.todayIndex);
                     }
                     Component.onCompleted: positionWeek()
                     onWidthChanged: positionWeek()
@@ -182,15 +234,25 @@ ColumnLayout {
                         width: wheel.cellWidth
                         height: wheel.height
 
-                        readonly property bool selected: root.sameDay(cell.modelData.date, root.selectedDate)
+                        // Proximity to the fixed blue point: dates zoom in and
+                        // brighten as they scroll under it, shrink and dim as
+                        // they leave (continuous, driven by contentX).
+                        readonly property real centerDist: Math.abs(
+                            cell.x + cell.width / 2 - (wheel.contentX + wheel.width / 2))
+                        readonly property real prox: Math.max(0, 1 - cell.centerDist / (wheel.cellWidth * 1.6))
+                        readonly property bool atCenter: cell.centerDist < wheel.cellWidth * 0.45
+                        readonly property real zoom: Settings.reduceMotionEnabled
+                            ? 1 : (0.86 + 0.32 * cell.prox)
 
-                        Rectangle {
-                            anchors.centerIn: parent
-                            width: parent.width - 4
-                            height: parent.height - 2
-                            radius: 8
-                            color: cell.selected ? Colors.accent : "transparent"
+                        // Pivot on the day-number row: the zooming number
+                        // stays glued to the static blue circle.
+                        transform: Scale {
+                            origin.x: wheel.cellWidth / 2
+                            origin.y: wheel.height / 2 + 11
+                            xScale: cell.zoom
+                            yScale: cell.zoom
                         }
+                        opacity: 0.7 + 0.3 * cell.prox
 
                         Column {
                             anchors.centerIn: parent
@@ -199,10 +261,13 @@ ColumnLayout {
                             Text {
                                 anchors.horizontalCenter: parent.horizontalCenter
                                 text: cell.modelData.weekday
-                                color: cell.selected ? Colors.white : Colors.textSecondary
+                                color: cell.atCenter ? Colors.white : Colors.textTertiary
                                 font.family: Typography.family
                                 font.pixelSize: Typography.s11
                                 renderType: Text.QtRendering
+                                // The colour crossfades as a date enters/leaves
+                                // the blue point.
+                                Behavior on color { ColorAnimation { duration: Motion.fast; easing.type: Easing.OutCubic } }
                             }
 
                             Item {
@@ -210,22 +275,16 @@ ColumnLayout {
                                 width: 20
                                 height: 20
 
-                                Rectangle {
-                                    anchors.centerIn: parent
-                                    width: 20
-                                    height: 20
-                                    radius: 10
-                                    color: cell.modelData.isToday ? Colors.accent : "transparent"
-                                }
                                 Text {
                                     anchors.centerIn: parent
                                     text: cell.modelData.day
-                                    color: cell.selected ? Colors.white
-                                         : (cell.modelData.isToday ? Colors.white : Colors.textSecondary)
+                                    color: cell.atCenter ? Colors.white
+                                         : (cell.modelData.isToday ? Colors.accent : Colors.textSecondary)
                                     font.family: Typography.family
                                     font.pixelSize: Typography.s13
                                     font.weight: Typography.medium
                                     renderType: Text.QtRendering
+                                    Behavior on color { ColorAnimation { duration: Motion.fast; easing.type: Easing.OutCubic } }
                                 }
                             }
                         }
@@ -234,8 +293,10 @@ ColumnLayout {
                             anchors.fill: parent
                             cursorShape: Qt.PointingHandCursor
                             onClicked: {
+                                wheel.userMoved = true;
                                 root.selectedDate = cell.modelData.date;
-                                wheel.currentIndex = cell.index;
+                                snapAnim.to = wheel.snapX(cell.index);
+                                snapAnim.start();
                             }
                         }
                     }
@@ -269,16 +330,19 @@ ColumnLayout {
     }
 
     // ---- Row 2: the day's events, or the empty state ----
-    // Collapsed (not hovered) the widget is just the one-line header, so the
-    // agenda only takes part in the layout while expanded.
     Item {
         Layout.fillWidth: true
         Layout.fillHeight: true
-        visible: root.expanded
 
         // Empty state (EmptyEventsView)
         Column {
-            anchors.centerIn: parent
+            // Centre under the date wheel / blue point, not the raw pane:
+            // the label block pushes the wheel centre (labelWidth + 8) / 2
+            // to the right of the pane centre.
+            anchors.horizontalCenter: parent.horizontalCenter
+            anchors.horizontalCenterOffset: (root.labelWidth + 8) / 2
+            anchors.verticalCenter: parent.verticalCenter
+            anchors.verticalCenterOffset: -6
             spacing: 0
             visible: root.agenda.length === 0
 

@@ -74,14 +74,6 @@ ColumnLayout {
             }
         }
         FormRow {
-            settingKey: "pinLyricsWhenClosed"
-            label: "Pin lyrics when closed"
-            FormToggle {
-                checked: Settings.values.pinLyricsWhenClosed
-                onToggled: (v) => Settings.set("pinLyricsWhenClosed", v)
-            }
-        }
-        FormRow {
             label: "Highlight"
             description: "How the line being sung is drawn."
             settingKey: "lyricHighlightStyle"
@@ -132,6 +124,85 @@ ColumnLayout {
                 value: Settings.values.lyricsPanelOffset
                 valueText: (value >= 0 ? "+" : "") + Math.round(value) + " px"
                 onMoved: (v) => Settings.set("lyricsPanelOffset", v)
+            }
+        }
+    }
+
+    FormSection {
+        Layout.fillWidth: true
+        title: "Closed notch"
+
+        FormRow {
+            label: "Show album art"
+            description: "The track's artwork on the closed pill."
+            settingKey: "closedShowAlbumArt"
+            FormToggle {
+                checked: Settings.values.closedShowAlbumArt
+                onToggled: (v) => Settings.set("closedShowAlbumArt", v)
+            }
+        }
+        FormRow {
+            label: "Show track title"
+            description: "Title and artist next to the art."
+            settingKey: "closedShowTrackTitle"
+            FormToggle {
+                checked: Settings.values.closedShowTrackTitle
+                onToggled: (v) => Settings.set("closedShowTrackTitle", v)
+            }
+        }
+        FormRow {
+            label: "Show visualizer"
+            description: "Waveform capsule on the closed pill."
+            settingKey: "closedShowVisualizer"
+            FormToggle {
+                checked: Settings.values.closedShowVisualizer
+                onToggled: (v) => Settings.set("closedShowVisualizer", v)
+            }
+        }
+        FormRow {
+            label: "Show clock"
+            description: "Idle time readout when nothing else shows."
+            settingKey: "closedShowClock"
+            FormToggle {
+                checked: Settings.values.closedShowClock
+                onToggled: (v) => Settings.set("closedShowClock", v)
+            }
+        }
+        FormRow {
+            label: "Show battery"
+            description: "Idle battery level; the same switch as in Battery settings."
+            settingKey: "showBatteryIndicator"
+            FormToggle {
+                checked: Settings.values.showBatteryIndicator
+                onToggled: (v) => Settings.set("showBatteryIndicator", v)
+            }
+        }
+        FormRow {
+            label: "Timer countdown"
+            description: "Live countdown takes over the pill while a timer runs."
+            settingKey: "closedShowTimer"
+            FormToggle {
+                checked: Settings.values.closedShowTimer
+                onToggled: (v) => Settings.set("closedShowTimer", v)
+            }
+        }
+        FormRow {
+            label: "Pin lyrics when closed"
+            description: "Current line kept under the closed pill (from Lyrics)."
+            settingKey: "pinLyricsWhenClosed"
+            FormToggle {
+                checked: Settings.values.pinLyricsWhenClosed
+                onToggled: (v) => Settings.set("pinLyricsWhenClosed", v)
+            }
+        }
+        FormRow {
+            label: "Notifications on the pill"
+            description: "Show notifications on the closed notch, morphing to fit, instead of opening it."
+            divider: false
+            settingKey: "closedNotchNotifications"
+            FormToggle {
+                checked: Settings.values.closedNotchNotifications
+                onToggled: (v) => Settings.set("closedNotchNotifications", v)
             }
         }
     }

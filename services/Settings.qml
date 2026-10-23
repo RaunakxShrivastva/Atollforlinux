@@ -98,11 +98,21 @@ QtObject {
             showStandardMediaControls: true,
             autoHideInactiveNotchMediaPlayer: true,
             enableSneakPeek: false,
+            // Closed-notch content (Media > "Closed notch"): per-item toggles
+            // for the collapsed pill, and notifications shown on the pill
+            // instead of auto-expanding the notch.
+            closedShowAlbumArt: true,
+            closedShowTrackTitle: true,
+            closedShowVisualizer: true,
+            closedShowClock: true,
+            closedShowTimer: true,
+            closedNotchNotifications: true,
             sneakPeekStyles: "standard",
             showSneakPeekOnTrackChange: true,
             enableFullscreenMediaDetection: true,
             parallaxEffectIntensity: 6.0,
             waitInterval: 3,
+            autoCloseNotch: true,
 
             // ---- Live Activities ----
             enableHUD: true,
@@ -272,6 +282,7 @@ QtObject {
     readonly property bool lighting: values.lightingEffect === true
     readonly property bool tintArtByPlayer: values.playerColorTinting === true
     readonly property bool showCalendar: values.showCalendar === true
+    readonly property string musicGestureBehavior: root.str("musicGestureBehavior", "track")
     readonly property string calendarPath: root.str("calendarPath", "~/.local/share/atoll/calendar.ics")
     readonly property int calendarUpcomingCount: root.num("calendarUpcomingCount", 5)
     readonly property bool timerFeature: values.enableTimerFeature === true
@@ -327,6 +338,7 @@ QtObject {
     readonly property bool openOnHover: values.openNotchOnHover !== false
     readonly property real minHoverDuration: root.num("minimumHoverDuration", 0.3)
     readonly property real waitInterval: root.num("waitInterval", 3)
+    readonly property bool autoCloseNotch: values.autoCloseNotch !== false
     readonly property bool openLastTab: values.openLastTabByDefault === true
     readonly property bool cornerRadiusScaling: values.cornerRadiusScaling !== false
     readonly property bool modernClose: values.useModernCloseAnimation !== false
@@ -370,6 +382,13 @@ QtObject {
     readonly property string sliderColor: root.str("sliderColor", "white")
     readonly property string colorExtractionMode: root.str("colorExtractionMode", "vibrant")
     readonly property bool musicVisualizer: values.useMusicVisualizer !== false
+    // Closed-notch content toggles (Media > "Closed notch").
+    readonly property bool closedShowAlbumArt: values.closedShowAlbumArt !== false
+    readonly property bool closedShowTrackTitle: values.closedShowTrackTitle !== false
+    readonly property bool closedShowVisualizer: values.closedShowVisualizer !== false
+    readonly property bool closedShowClock: values.closedShowClock !== false
+    readonly property bool closedShowTimer: values.closedShowTimer !== false
+    readonly property bool closedNotchNotifications: values.closedNotchNotifications !== false
     readonly property int visualizerBarCount: Math.max(2, Math.min(8, root.num("visualizerBarCount", 4)))
     readonly property bool waveformScrubber: values.enableWaveformScrubber !== false
     readonly property bool shuffleAndRepeat: values.showShuffleAndRepeat !== false

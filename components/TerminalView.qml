@@ -5,10 +5,11 @@ import "../theme"
 // Terminal tab (Developer > Terminal), ported from
 // components/Notch/NotchTerminalView.swift.
 //
-// Atoll hosts a live shell in SwiftTerm; a Wayland layer surface cannot host a
-// native window, so the header + guake-style role are kept and the body shows a
-// working console for one-off commands plus a launcher for the real terminal.
-// `service` is the TerminalService singleton.
+// A real interactive shell: TerminalService keeps one PTY session alive, the
+// input line feeds its stdin (Enter, arrows for shell history, Tab
+// completion, Ctrl+C/D/L forwarded), and the console renders the streamed
+// output with ANSI colours. Passwords and prompts work because the shell
+// runs on a PTY, not a pipe. `service` is the TerminalService singleton.
 ColumnLayout {
     id: root
 
@@ -49,6 +50,33 @@ ColumnLayout {
             font.weight: Typography.medium
             renderType: Text.QtRendering
         }
+        // Launcher for the real terminal, kept in the header where there is
+        // always room (the chips row below used to push it past the edge).
+        Rectangle {
+            Layout.alignment: Qt.AlignVCenter
+            visible: root.emulator !== ""
+            implicitWidth: openLabel.implicitWidth + 16
+            implicitHeight: 18
+            radius: 5
+            color: openMouse.containsMouse ? Qt.lighter(Colors.accent, 1.15) : Colors.accent
+            Text {
+                id: openLabel
+                anchors.centerIn: parent
+                text: "Open " + root.emulator
+                color: Colors.white
+                font.family: Typography.family
+                font.pixelSize: Typography.s10
+                font.weight: Typography.medium
+                renderType: Text.QtRendering
+            }
+            MouseArea {
+                id: openMouse
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onClicked: if (root.service) root.service.launch()
+            }
+        }
         SvgIcon {
             Layout.alignment: Qt.AlignVCenter
             iconName: "arrow.counterclockwise"
@@ -60,7 +88,7 @@ ColumnLayout {
                 anchors.margins: -5
                 hoverEnabled: true
                 cursorShape: Qt.PointingHandCursor
-                onClicked: if (root.service) root.service.clear()
+                onClicked: if (root.service) root.service.restart()
             }
         }
     }
@@ -106,6 +134,18 @@ ColumnLayout {
         Item { Layout.fillHeight: true }
     }
 
+    // Enter hands the line to the live shell (stdin), like a real terminal.
+    function submitCommand() {
+        var cmd = commandInput.text;
+        commandInput.text = "";
+        if (cmd.trim() === "") return;
+        if (root.service) root.service.send(cmd);
+    }
+
+    // Typing into the notch needs the island to hold the keyboard
+    // (shell.qml gates that on NotchContainer.wantsKeyboard).
+    onVisibleChanged: if (visible) Qt.callLater(() => commandInput.forceActiveFocus())
+
     // ---- console ----
     ColumnLayout {
         Layout.fillWidth: true
@@ -124,31 +164,97 @@ ColumnLayout {
             border.color: Colors.hairline
             clip: true
 
-            Flickable {
-                id: consoleFlick
+            ColumnLayout {
                 anchors.fill: parent
                 anchors.margins: 8
-                contentWidth: width
-                contentHeight: transcript.implicitHeight
-                boundsBehavior: Flickable.StopAtBounds
-                // Follow the tail as output arrives, like a real terminal.
-                onContentHeightChanged: if (contentHeight > height) contentY = contentHeight - height
+                spacing: 4
 
-                TextEdit {
-                    id: transcript
-                    width: consoleFlick.width
-                    text: root.service && root.service.output !== ""
-                          ? root.service.output
-                          : "$ " + root.shellName + "  (press Run, or open a real terminal)"
-                    color: root.service && root.service.output !== ""
-                           ? Colors.textPrimary : Colors.textTertiary
-                    readOnly: true
-                    selectByMouse: true
-                    wrapMode: TextEdit.WrapAnywhere
-                    textFormat: TextEdit.PlainText
-                    font.family: Typography.familyMono
-                    font.pixelSize: Typography.s11
-                    renderType: Text.QtRendering
+                // ---- input line: type here, Enter runs, Up/Down walk history ----
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 6
+
+                    Text {
+                        text: "$"
+                        color: Colors.accent
+                        font.family: Typography.familyMono
+                        font.pixelSize: Typography.s11
+                        font.weight: Typography.medium
+                        renderType: Text.QtRendering
+                    }
+
+                    TextEdit {
+                        id: commandInput
+                        Layout.fillWidth: true
+                        color: Colors.textPrimary
+                        font.family: Typography.familyMono
+                        font.pixelSize: Typography.s11
+                        renderType: Text.QtRendering
+                        selectByMouse: true
+                        wrapMode: TextEdit.NoWrap
+                        // Keep an empty line's height stable so the row does
+                        // not collapse when the field is blank.
+                        Layout.preferredHeight: Math.max(font.pixelSize + 6, contentHeight)
+                        Keys.onReturnPressed: event => root.submitCommand()
+                        Keys.onEnterPressed: event => root.submitCommand()
+                        // Arrows walk the SHELL's history (readline), not a
+                        // local list - the session is the source of truth.
+                        Keys.onUpPressed: event => {
+                            if (root.service) root.service.writeRaw("\u001b[A");
+                            event.accepted = true;
+                        }
+                        Keys.onDownPressed: event => {
+                            if (root.service) root.service.writeRaw("\u001b[B");
+                            event.accepted = true;
+                        }
+                        // Tab completion and the usual line-editing signals.
+                        Keys.onTabPressed: event => {
+                            if (root.service) root.service.writeRaw("\t");
+                            event.accepted = true;
+                        }
+                        Keys.onPressed: event => {
+                            if (!(event.modifiers & Qt.ControlModifier)) return;
+                            var k = event.key;
+                            if (k === Qt.Key_C) { root.service.writeRaw("\u0003"); event.accepted = true; }
+                            else if (k === Qt.Key_D) { root.service.writeRaw("\u0004"); event.accepted = true; }
+                            else if (k === Qt.Key_L) { root.service.writeRaw("\u000c"); event.accepted = true; }
+                            else if (k === Qt.Key_U) { root.service.writeRaw("\u0015"); event.accepted = true; }
+                            else if (k === Qt.Key_W) { root.service.writeRaw("\u0017"); event.accepted = true; }
+                        }
+                    }
+                }
+
+                Rectangle {
+                    Layout.fillWidth: true
+                    implicitHeight: 1
+                    color: Colors.hairline
+                }
+
+                Flickable {
+                    id: consoleFlick
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    contentWidth: width
+                    contentHeight: transcript.implicitHeight
+                    boundsBehavior: Flickable.StopAtBounds
+                    // Follow the tail as output arrives, like a real terminal.
+                    onContentHeightChanged: if (contentHeight > height) contentY = contentHeight - height
+
+                    TextEdit {
+                        id: transcript
+                        width: consoleFlick.width
+                        text: root.service && root.service.text !== ""
+                              ? root.service.text
+                              : root.shellName + "  (type a command below the line above; passwords and prompts work)"
+                        color: Colors.textPrimary
+                        readOnly: true
+                        selectByMouse: true
+                        wrapMode: TextEdit.WrapAnywhere
+                        textFormat: TextEdit.RichText
+                        font.family: Typography.familyMono
+                        font.pixelSize: Typography.s11
+                        renderType: Text.QtRendering
+                    }
                 }
             }
         }
@@ -180,35 +286,8 @@ ColumnLayout {
                         anchors.fill: parent
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
-                        onClicked: if (root.service) root.service.run(String(chip.modelData))
+                        onClicked: if (root.service) root.service.send(String(chip.modelData))
                     }
-                }
-            }
-
-            Item { Layout.fillWidth: true }
-
-            Rectangle {
-                implicitWidth: openLabel.implicitWidth + 20
-                implicitHeight: 20
-                radius: 6
-                color: openMouse.containsMouse ? Qt.lighter(Colors.accent, 1.15) : Colors.accent
-                Text {
-                    id: openLabel
-                    anchors.centerIn: parent
-                    text: root.emulator === "" ? "No terminal found" : "Open " + root.emulator
-                    color: Colors.white
-                    font.family: Typography.family
-                    font.pixelSize: Typography.s10
-                    font.weight: Typography.medium
-                    renderType: Text.QtRendering
-                }
-                MouseArea {
-                    id: openMouse
-                    anchors.fill: parent
-                    hoverEnabled: true
-                    enabled: root.emulator !== ""
-                    cursorShape: Qt.PointingHandCursor
-                    onClicked: if (root.service) root.service.launch()
                 }
             }
         }

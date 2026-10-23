@@ -15,3 +15,5 @@ singleton TerminalService TerminalService.qml
 singleton LLMUsageService LLMUsageService.qml
 DownloadsService DownloadsService.qml
 CalendarService CalendarService.qml
+singleton AudioBars AudioBars.qml
+singleton QuickShareService QuickShareService.qml

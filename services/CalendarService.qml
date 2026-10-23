@@ -50,6 +50,26 @@ QtObject {
         return out.slice(0, root.limit);
     }
 
+    // Everything the calendars know about, keyed by day: the standalone
+    // calendar's agenda pane has no "upcoming" window and no 5-item limit.
+    readonly property var agenda: {
+        var out = [];
+        for (var i = 0; i < root.events.length; i++) {
+            var e = root.events[i];
+            if (root.hideAllDay && e.allDay) continue;
+            out.push(e);
+        }
+        if (!root.hideCompleted) {
+            for (var j = 0; j < root.reminderTodos.length; j++) {
+                var t = root.reminderTodos[j];
+                if (root.hideAllDay && t.allDay) continue;
+                out.push(t);
+            }
+        }
+        out.sort(function (a, b) { return a.start - b.start; });
+        return out;
+    }
+
     function parseDate(v, isDateOnly) {
         if (!v) return null;
         var s = v.trim();

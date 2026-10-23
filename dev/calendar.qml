@@ -38,13 +38,14 @@ Window {
     Rectangle {
         x: 440; y: 20
         width: 300
-        height: 70
+        height: 150
         color: "#000000"
         radius: 16
 
         CalendarWidget {
             anchors.fill: parent
             anchors.margins: 8
+            expanded: false
             events: []
         }
     }

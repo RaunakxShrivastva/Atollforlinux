@@ -37,6 +37,9 @@ QtObject {
     // the volume re-read has actually landed, so the HUD never shows a stale
     // value (the read is a process round-trip).
     property bool _wantExternal: false
+    // Set by parseVolume when a re-read actually moved the value, so a
+    // re-read that found nothing new never reaches the HUD.
+    property bool _volChanged: false
 
     function refreshSinks() {
         sinksProc.running = true;
@@ -102,7 +105,10 @@ QtObject {
         onRunningChanged: {
             if (!running && root._wantExternal) {
                 root._wantExternal = false;
-                root.externalVolumeChange();
+                if (root._volChanged) {
+                    root._volChanged = false;
+                    root.externalVolumeChange();
+                }
             }
         }
     }
@@ -118,7 +124,11 @@ QtObject {
         stdout: SplitParser {
             onRead: data => {
                 var line = data.toLowerCase();
-                if (line.indexOf("sink") === -1 && line.indexOf("server") === -1) return;
+                // Only the sink device itself (and the server) can change the
+                // default-sink volume. sink-input lines (pausing music,
+                // notification sounds, per-app volume) fire constantly and
+                // used to pop the HUD on every interaction.
+                if (line.indexOf("on sink #") === -1 && line.indexOf("on server") === -1) return;
                 volumeDebounce.restart();
                 sinksDebounce.restart();
             }
@@ -178,13 +188,18 @@ QtObject {
 
     function parseVolume(text) {
         var lines = text.trim().split("\n");
+        var vol = root.volume;
+        var muted = root.muted;
         for (var i = 0; i < lines.length; i++) {
             var l = lines[i].trim();
             if (l.endsWith("%")) {
-                root.volume = Math.max(0, Math.min(1, parseInt(l) / 100));
+                vol = Math.max(0, Math.min(1, parseInt(l) / 100));
             } else if (l === "yes" || l === "no") {
-                root.muted = (l === "yes");
+                muted = (l === "yes");
             }
         }
+        root._volChanged = vol !== root.volume || muted !== root.muted;
+        root.volume = vol;
+        root.muted = muted;
     }
 }
